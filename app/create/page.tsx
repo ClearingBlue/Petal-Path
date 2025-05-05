@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, MapPin, ImagePlus, X } from "lucide-react"
+import { ArrowLeft, MapPin, ImagePlus, X, Search, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,19 +14,30 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter
 } from "@/components/ui/dialog"
 import { toast } from "@/components/ui/use-toast"
 import { createPost } from "@/lib/data/services/post-service"
 import Image from "next/image"
-import { locations } from "@/lib/data/models/location"
+import { locations, Location } from "@/lib/data/models/location"
+import dynamic from "next/dynamic"
+import { createMarkerIcon, createUserLocationIcon } from "@/lib/leaflet-utils"
 
 // Preset tags list
 const PRESET_TAGS = [
   "Study Room", "Dining Hall", "Library", "Cafe", "Scenery", "Outdoor", "Quiet", "Crowded",
   "Academic", "Sports", "Events", "Arts", "Hidden Spot", "Dorms", "Entertainment"
 ];
+
+// Map component with no SSR
+const LocationMapWithNoSSR = dynamic(() => import("@/components/location-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[300px] bg-muted rounded-md flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  ),
+});
 
 export default function CreatePost() {
   const router = useRouter();
@@ -40,19 +51,20 @@ export default function CreatePost() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isLocationDialogOpen, setIsLocationDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState(""); 
 
-  // Handle form input changes
+  // 处理表单输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Handle image selection
+  // 处理图像选择
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file type
+    // 检查文件类型
     if (!file.type.startsWith('image/')) {
       toast({
         title: "Error",
@@ -64,7 +76,7 @@ export default function CreatePost() {
 
     setImageFile(file);
     
-    // Create preview
+    // 创建预览
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result as string);
@@ -72,7 +84,7 @@ export default function CreatePost() {
     reader.readAsDataURL(file);
   };
 
-  // Handle image removal
+  // 处理图像移除
   const handleRemoveImage = () => {
     setImageFile(null);
     setImagePreview(null);
@@ -81,7 +93,7 @@ export default function CreatePost() {
     }
   };
 
-  // Toggle tag selection
+  // 切换标签选择
   const toggleTag = (tag: string) => {
     setFormData(prev => {
       const tags = [...prev.tags];
@@ -97,15 +109,25 @@ export default function CreatePost() {
     });
   };
 
-  // Confirm location selection
+  // 确认位置选择
   const confirmLocation = (location: string) => {
     setFormData(prev => ({ ...prev, location }));
     setIsLocationDialogOpen(false);
   };
+  
+  // 处理搜索输入
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value.toLowerCase());
+  };
+  
+  // 过滤位置列表
+  const filteredLocations = locations.filter(location => 
+    location.name.toLowerCase().includes(searchTerm)
+  );
 
-  // Submit form
+  // 提交表单
   const handleSubmit = async () => {
-    // Validate form
+    // 验证表单
     if (!formData.description.trim()) {
       toast({
         title: "Please enter a description",
@@ -133,14 +155,14 @@ export default function CreatePost() {
     try {
       setIsSubmitting(true);
       
-      // Mock image upload process, in a real app we would handle actual uploads
-      // For demo purposes, we'll use the preview URL directly
+      // 模拟图像上传过程，在实际应用中我们会处理实际上传
+      // 演示目的，我们将直接使用预览URL
       const imageUrl = imagePreview || "";
       
-      // Create new post - generate a title from the first few words of description
+      // 创建新帖子 - 从描述的前几个词生成标题
       const generatedTitle = formData.description.split(' ').slice(0, 3).join(' ') + '...';
       
-      // Create new post
+      // 创建新帖子
       await createPost({
         title: generatedTitle,
         content: formData.description,
@@ -154,7 +176,7 @@ export default function CreatePost() {
         description: "Your post has been published",
       });
 
-      // Redirect to Feed page
+      // 重定向到Feed页面
       router.push("/");
       
     } catch (error) {
@@ -191,7 +213,7 @@ export default function CreatePost() {
         </div>
       </header>
       <div className="flex-1 p-4 space-y-6 max-w-2xl mx-auto w-full">
-        {/* Photo upload area */}
+        {/* 照片上传区域 */}
         <div 
           className="aspect-square bg-muted rounded-md relative overflow-hidden"
           onClick={() => fileInputRef.current?.click()}
@@ -232,7 +254,7 @@ export default function CreatePost() {
         </div>
 
         <div className="space-y-4">
-          {/* Description */}
+          {/* 描述 */}
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea 
@@ -245,7 +267,7 @@ export default function CreatePost() {
             />
           </div>
 
-          {/* Tags */}
+          {/* 标签 */}
           <div className="space-y-2">
             <Label>Tags</Label>
             <div className="flex flex-wrap gap-2">
@@ -262,7 +284,7 @@ export default function CreatePost() {
             </div>
           </div>
 
-          {/* Location */}
+          {/* 位置 */}
           <div className="space-y-2">
             <Label htmlFor="location">Location</Label>
             <div className="flex items-center gap-2">
@@ -288,32 +310,54 @@ export default function CreatePost() {
         </div>
       </div>
 
-      {/* Location selection dialog */}
+      {/* 位置选择对话框 */}
       <Dialog open={isLocationDialogOpen} onOpenChange={setIsLocationDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Select Location</DialogTitle>
           </DialogHeader>
-          <div className="h-[300px] bg-muted rounded-md mb-4 flex items-center justify-center">
-            <p className="text-muted-foreground">Map should display here</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="locationSearch">Search Location</Label>
-            <Input id="locationSearch" placeholder="Search..." />
-            <div className="mt-2 space-y-2">
-              {locations.map(location => (
-                <Button 
-                  key={location.id}
-                  variant="outline" 
-                  className="w-full justify-start" 
-                  onClick={() => confirmLocation(location.name)}
-                >
-                  <MapPin className="h-4 w-4 mr-2" />
-                  <span>{location.name}</span>
-                </Button>
-              ))}
+          
+          {/* 地图组件 */}
+          {isLocationDialogOpen && (
+            <LocationMapWithNoSSR
+              selectedLocation={formData.location}
+              onSelectLocation={confirmLocation}
+            />
+          )}
+          
+          <div className="space-y-2 mt-4">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input 
+                id="locationSearch" 
+                placeholder="Search location..." 
+                className="pl-8"
+                value={searchTerm}
+                onChange={handleSearchChange}
+              />
+            </div>
+            
+            <div className="mt-2 h-[200px] overflow-y-auto space-y-1">
+              {filteredLocations.length > 0 ? (
+                filteredLocations.map(location => (
+                  <Button 
+                    key={location.id}
+                    variant={formData.location === location.name ? "default" : "outline"} 
+                    className="w-full justify-start" 
+                    onClick={() => confirmLocation(location.name)}
+                  >
+                    <MapPin className="h-4 w-4 mr-2" />
+                    <span>{location.name}</span>
+                  </Button>
+                ))
+              ) : (
+                <div className="flex h-full items-center justify-center text-muted-foreground">
+                  No locations found
+                </div>
+              )}
             </div>
           </div>
+          
           <DialogFooter>
             <Button variant="secondary" onClick={() => setIsLocationDialogOpen(false)}>Cancel</Button>
           </DialogFooter>

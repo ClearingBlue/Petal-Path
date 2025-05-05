@@ -11,7 +11,7 @@ interface MapContentProps {
   onSelectLocation: (id: number) => void
 }
 
-export function MapContent({
+export default function MapContent({
   userLocation,
   locations,
   selectedLocation,
@@ -20,6 +20,7 @@ export function MapContent({
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const userMarkerRef = useRef<any>(null);
+  const zoomControlRef = useRef<any>(null);
   
   // 尝试获取地图实例，但如果失败则返回 null (例如在 SSR 期间)
   let map = null;
@@ -38,7 +39,49 @@ export function MapContent({
     const currentMap = mapRef.current; 
     if (!currentMap) return;
     
-    // Map is now available
+    // 添加缩放控件到右上角
+    import("leaflet").then((L) => {
+      // 移除现有的缩放控件（如果有）
+      if (zoomControlRef.current) {
+        zoomControlRef.current.remove();
+      }
+      
+      // 创建新的缩放控件并添加到地图右上角
+      const zoomControl = new L.Control.Zoom({ 
+        position: 'topright',
+        zoomInTitle: 'Zoom in',
+        zoomOutTitle: 'Zoom out'
+      });
+      zoomControl.addTo(currentMap);
+      zoomControlRef.current = zoomControl;
+      
+      // 添加自定义样式到缩放控件，使其更紧凑
+      if (typeof document !== 'undefined') {
+        const style = document.createElement('style');
+        style.textContent = `
+          .leaflet-control-zoom {
+            margin-right: 12px !important;
+            margin-top: 12px !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+            border: none !important;
+          }
+          .leaflet-control-zoom a {
+            width: 32px !important;
+            height: 32px !important;
+            line-height: 30px !important;
+            background-color: white !important;
+            color: #333 !important;
+          }
+          .leaflet-control-zoom a:hover {
+            background-color: #f9f9f9 !important;
+            color: #000 !important;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }).catch(error => {
+      console.error("Error importing Leaflet for zoom control:", error);
+    });
   }, []);
 
   // Update map view when user location changes
@@ -173,7 +216,20 @@ export function MapContent({
     };
   }, [locations, selectedLocation, onSelectLocation]);
 
-  return null;
-}
+  // 清理函数
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined') {
+        try {
+          if (zoomControlRef.current) {
+            zoomControlRef.current.remove();
+          }
+        } catch (error) {
+          console.error("Error cleaning up zoom control:", error);
+        }
+      }
+    };
+  }, []);
 
-export default MapContent; 
+  return null;
+} 

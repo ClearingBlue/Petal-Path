@@ -2,56 +2,27 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import React, { useEffect, useState } from "react"
-import { ArrowLeft, MapPin, Star } from "lucide-react"
+import React from "react"
+import { ArrowLeft, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { getLocation, getPostsByLocation } from "@/lib/data"
 import type { Location } from "@/lib/data/models/location"
-import type { Post } from "@/lib/data/models/post"
 
 // 扩展 Location 类型以包含缺少的属性
 interface ExtendedLocation extends Location {
   preview?: string;
-  tags?: string[];
+  tags: string[];
 }
 
 export default function LocationFeed({ params }: { params: { id: string } }) {
   const router = useRouter()
   const unwrappedParams = React.use(params as any) as { id: string };
   const locationId = Number.parseInt(unwrappedParams.id)
-  const [location, setLocation] = useState<ExtendedLocation | null>(null)
-  const [posts, setPosts] = useState<Post[]>([])
-  const [loading, setLoading] = useState(true)
-  const [isFavorited, setIsFavorited] = useState(false)
-
-  useEffect(() => {
-    const loc = getLocation(locationId) as ExtendedLocation;
-    const locationPosts = getPostsByLocation(locationId);
-    
-    // 确保location有tags属性，如果没有则添加空数组
-    if (loc && !loc.tags) {
-      loc.tags = [];
-    }
-    
-    setLocation(loc);
-    setPosts(locationPosts);
-    setLoading(false);
-  }, [locationId]);
-
-  const toggleFavorite = () => {
-    setIsFavorited(!isFavorited);
-  };
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center">
-        <p>Loading location data...</p>
-      </div>
-    )
-  }
+  const location = getLocation(locationId) as ExtendedLocation;
+  const posts = getPostsByLocation(locationId)
 
   if (!location) {
     return (
@@ -71,25 +42,14 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
   return (
     <main className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-14 items-center px-4 justify-between">
-          <div className="flex items-center">
-            <Button variant="ghost" size="icon" className="mr-2" asChild>
-              <Link href="/">
-                <ArrowLeft className="h-5 w-5" />
-                <span className="sr-only">Back</span>
-              </Link>
-            </Button>
-            <span className="text-lg font-semibold">{location.name}</span>
-          </div>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={toggleFavorite}
-            className={isFavorited ? "text-yellow-400" : "text-muted-foreground"}
-          >
-            <Star className="h-5 w-5 fill-current" />
-            <span className="sr-only">Favorite</span>
+        <div className="flex h-14 items-center px-4">
+          <Button variant="ghost" size="icon" className="mr-2" asChild>
+            <Link href="/">
+              <ArrowLeft className="h-5 w-5" />
+              <span className="sr-only">Back</span>
+            </Link>
           </Button>
+          <span className="text-lg font-semibold">{location.name}</span>
         </div>
       </header>
       <div className="flex-1 pb-16">
@@ -102,7 +62,7 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
             <h1 className="text-white font-bold text-xl">{location.name}</h1>
             <div className="flex flex-wrap gap-1 mt-1">
-              {Array.isArray(location.tags) && location.tags.map((tag) => (
+              {location.tags.map((tag) => (
                 <Badge key={tag} variant="secondary" className="bg-black/30 text-white">
                   {tag}
                 </Badge>

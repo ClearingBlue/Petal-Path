@@ -36,7 +36,7 @@ interface MapContentProps {
 // Dynamically import all Leaflet components with no SSR
 const MapContainer = dynamic(() => import("react-leaflet").then(mod => mod.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import("react-leaflet").then(mod => mod.TileLayer), { ssr: false });
-const MapContent = dynamic<MapContentProps>(() => import("./map-content"), {
+const MapContentComponent = dynamic<MapContentProps>(() => import("./map-content").then(mod => mod.default), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-full w-full">
@@ -64,7 +64,7 @@ const Map = dynamic(
               zoom={zoom}
               scrollWheelZoom={true}
               style={{ height: "100%", width: "100%" }}
-              zoomControl={true}
+              zoomControl={false}
             >
               {children}
             </MapContainer>
@@ -260,14 +260,14 @@ export default function MapView() {
       ) : (
         <>
           {/* Search and filter controls */}
-          <div className="absolute top-4 left-4 right-4 z-20 flex gap-2">
+          <div className="absolute top-4 left-4 right-16 z-20 flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-9" placeholder="Search locations..." />
+              <Input className="pl-9 pr-3" placeholder="Search locations..." />
             </div>
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon">
+                <Button variant="outline" size="icon" className="h-10 w-10 shrink-0">
                   <Filter className="h-4 w-4" />
                 </Button>
               </SheetTrigger>
@@ -331,7 +331,7 @@ export default function MapView() {
                   />
 
                   {/* All map interactions in a separate component */}
-                  <MapContent
+                  <MapContentComponent
                     userLocation={userLocation}
                     locations={locations}
                     selectedLocation={selectedLocation}

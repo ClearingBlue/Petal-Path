@@ -355,8 +355,8 @@ export default function PostDetail({ params }: { params: { id: string } }) {
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
-                size="sm"
-                className={`flex items-center gap-1 h-8 px-2 ${voteStatus === "up" ? "text-green-500" : ""}`}
+                size="icon"
+                className={`h-8 w-8 p-0 ${voteStatus === "up" ? "text-green-500" : ""}`}
                 onClick={() => handleVote("up")}
               >
                 <ChevronUp className="h-4 w-4" />
@@ -364,20 +364,24 @@ export default function PostDetail({ params }: { params: { id: string } }) {
               <span className="text-sm font-medium">{likeCount}</span>
               <Button
                 variant="ghost"
-                size="sm"
-                className={`flex items-center gap-1 h-8 px-2 ${voteStatus === "down" ? "text-red-500" : ""}`}
+                size="icon"
+                className={`h-8 w-8 p-0 ${voteStatus === "down" ? "text-red-500" : ""}`}
                 onClick={() => handleVote("down")}
               >
                 <ChevronDown className="h-4 w-4" />
               </Button>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" className="flex items-center gap-1 h-8 px-2" 
-                      onClick={() => {
-                        if (commentsRef.current) {
-                          commentsRef.current.scrollIntoView({ behavior: "smooth" })
-                        }
-                      }}>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="flex items-center gap-1 h-8 px-2"
+                onClick={() => {
+                  if (commentsRef.current) {
+                    commentsRef.current.scrollIntoView({ behavior: "smooth" })
+                  }
+                }}
+              >
                 <MessageCircle className="h-4 w-4" />
                 <span>{comments.length}</span>
               </Button>
@@ -500,20 +504,19 @@ export default function PostDetail({ params }: { params: { id: string } }) {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={`flex items-center gap-1 h-6 px-2 text-xs ${likedComments.has(comment.id) ? "text-rose-500" : ""}`}
+                      className={`h-6 px-1 text-xs ${likedComments.has(comment.id) ? "text-rose-500" : ""}`}
                       onClick={() => handleLikeComment(comment.id)}
                     >
-                      <Heart className={`h-3 w-3 ${likedComments.has(comment.id) ? "fill-current" : ""}`} />
+                      <Heart className={`h-3 w-3 mr-1 ${likedComments.has(comment.id) ? "fill-current" : ""}`} />
                       <span>{comment.likes}</span>
                     </Button>
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      className="flex items-center gap-1 h-6 px-2 text-xs"
+                      className="h-6 px-1 text-xs"
                       onClick={() => handleReply(comment.id, comment.user.username)}
                     >
-                      <MessageCircle className="h-3 w-3" />
-                      <span>Reply</span>
+                      Reply
                     </Button>
                   </div>
                 </div>
