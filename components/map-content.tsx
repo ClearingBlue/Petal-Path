@@ -171,7 +171,7 @@ export default function MapContent({
           const isSelected = selectedLocation === location.id;
 
           // Create custom icon
-          const icon = L.icon(createMarkerIcon(isSelected ? "#f43f5e" : "#ef4444", isSelected));
+          const icon = L.icon(createMarkerIcon("#f472b6", isSelected));
 
           // Create marker
           const marker = L.marker([location.lat, location.lng], { icon });
