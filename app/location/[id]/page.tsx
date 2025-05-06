@@ -14,7 +14,7 @@ import type { Location } from "@/lib/data/models/location"
 // 扩展 Location 类型以包含缺少的属性
 interface ExtendedLocation extends Location {
   preview?: string;
-  tags: string[];
+  tags?: string[];
 }
 
 export default function LocationFeed({ params }: { params: { id: string } }) {
@@ -62,7 +62,7 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
             <h1 className="text-white font-bold text-xl">{location.name}</h1>
             <div className="flex flex-wrap gap-1 mt-1">
-              {location.tags.map((tag) => (
+              {location.tags && Array.isArray(location.tags) && location.tags.map((tag) => (
                 <Badge key={tag} variant="secondary" className="bg-black/30 text-white">
                   {tag}
                 </Badge>
@@ -103,7 +103,7 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
                   <div className="p-4 space-y-2">
                     <p className="text-sm text-muted-foreground">{post.description}</p>
                     <div className="flex flex-wrap gap-1">
-                      {post.tags.map((tag) => (
+                      {post.tags && Array.isArray(post.tags) && post.tags.map((tag) => (
                         <Badge key={tag} variant="secondary">
                           {tag}
                         </Badge>
