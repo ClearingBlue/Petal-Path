@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { getPosts } from "@/lib/data"
+import { getLocationByName } from "@/lib/data/services/location-service"
 
 export default function FeedView() {
   const router = useRouter()
@@ -34,6 +35,12 @@ export default function FeedView() {
     if (!isMounted) return
     e.stopPropagation()
     router.push(`/post/${postId}#comments`)
+  }
+
+  // 通过位置名称获取正确的位置ID
+  const getLocationIdByName = (locationName: string): number => {
+    const location = getLocationByName(locationName)
+    return location?.id || 0
   }
 
   const handleVote = (postId: number, direction: "up" | "down") => {
@@ -111,7 +118,14 @@ export default function FeedView() {
               />
               <div className="p-4 space-y-2">
                 <div className="flex items-center mb-2">
-                  <span onClick={(e) => e.stopPropagation()} className="flex items-center gap-2">
+                  <span 
+                    className="flex items-center gap-2 cursor-pointer" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const locationId = getLocationIdByName(post.location);
+                      router.push(`/location/${locationId}`);
+                    }}
+                  >
                     <MapPin className="h-5 w-5 text-rose-500" />
                     <span className="text-lg font-semibold text-foreground">{post.location}</span>
                   </span>

@@ -93,3 +93,8 @@ export function getPostById(postId: number): Post | undefined {
 export function getUserPosts(userId: number): Post[] {
   return posts.filter(post => post.user.id === userId);
 }
+
+// 根据位置ID获取帖子
+export function getPostsByLocation(locationId: number): Post[] {
+  return posts.filter(post => post.locationId === locationId);
+}
