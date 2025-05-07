@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import React from "react"
+import React, { use } from "react"
 import { ArrowLeft, Heart, MessageCircle, Share2, Bookmark, MapPin, MoreHorizontal, Trash2, ChevronUp, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -29,7 +29,7 @@ import { toast } from "@/components/ui/use-toast"
 export default function PostDetail({ params }: { params: { id: string } }) {
   const router = useRouter()
   const commentsRef = useRef<HTMLDivElement>(null)
-  const unwrappedParams = React.use(params as any) as { id: string };
+  const unwrappedParams = use(params as any) as { id: string };
   const postId = Number.parseInt(unwrappedParams.id)
   const [post, setPost] = useState(getPost(postId))
   const [comments, setComments] = useState<Comment[]>([])

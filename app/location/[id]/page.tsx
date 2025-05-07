@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import React from "react"
+import React, { use } from "react"
 import { ArrowLeft, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -19,7 +19,7 @@ interface ExtendedLocation extends Location {
 
 export default function LocationFeed({ params }: { params: { id: string } }) {
   const router = useRouter()
-  const unwrappedParams = React.use(params as any) as { id: string };
+  const unwrappedParams = use(params as any) as { id: string };
   const locationId = Number.parseInt(unwrappedParams.id)
   const location = getLocation(locationId) as ExtendedLocation;
   const posts = getPostsByLocation(locationId)

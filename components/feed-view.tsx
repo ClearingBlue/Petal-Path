@@ -94,12 +94,19 @@ export default function FeedView() {
           <Card key={post.id} className="overflow-hidden">
             <CardHeader className="p-4 pb-0">
               <div className="flex items-center space-x-2">
-                <Avatar>
-                  <AvatarImage src={post.user.avatar || "/placeholder.svg"} />
+                <Avatar 
+                  className="w-10 h-10 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => router.push(`/profile/${post.user.id}`)}
+                >
+                  <AvatarImage src={post.user.avatar} />
                   <AvatarFallback>{post.user.name.charAt(0)}</AvatarFallback>
                 </Avatar>
-                <div>
-                  <div className="font-semibold">{post.user.username}</div>
+                <div 
+                  className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => router.push(`/profile/${post.user.id}`)}
+                >
+                  <div className="font-semibold">{post.user.name}</div>
+                  <div className="text-xs text-muted-foreground">{post.user.username}</div>
                 </div>
               </div>
             </CardHeader>
