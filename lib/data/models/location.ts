@@ -3,11 +3,12 @@
  */
 
 import { getUnsplashImage } from "../utils/image-utils";
+import { Post } from "./post";
 
 export interface Location {
   id: number;
   name: string;
-  description: string;
+  description?: string;
   imageUrl: string;
   address: string;
   lat: number;
@@ -15,10 +16,17 @@ export interface Location {
   category: string;
   rating: number;
   visitCount: number;
+  tags?: string[];
+}
+
+// 扩展位置类型，包含关联的帖子
+export interface ExtendedLocation extends Location {
+  posts?: Post[];
+  tags: string[];
 }
 
 // Mock locations data
-export const locations: Location[] = [
+export const locations: ExtendedLocation[] = [
   {
     id: 1,
     name: "Memorial Church",
@@ -30,6 +38,8 @@ export const locations: Location[] = [
     category: "landmark",
     rating: 4.8,
     visitCount: 1250,
+    tags: ["landmark", "history", "architecture"],
+    posts: []
   },
   {
     id: 2,
@@ -42,6 +52,8 @@ export const locations: Location[] = [
     category: "study",
     rating: 4.7,
     visitCount: 980,
+    tags: ["study", "quiet", "academic"],
+    posts: []
   },
   {
     id: 3,
@@ -54,6 +66,8 @@ export const locations: Location[] = [
     category: "food",
     rating: 4.5,
     visitCount: 750,
+    tags: ["food", "social", "events"],
+    posts: []
   },
   {
     id: 4,
@@ -66,6 +80,8 @@ export const locations: Location[] = [
     category: "nature",
     rating: 4.6,
     visitCount: 850,
+    tags: ["nature", "outdoors", "relaxing"],
+    posts: []
   },
   {
     id: 5,
@@ -78,5 +94,7 @@ export const locations: Location[] = [
     category: "food",
     rating: 4.4,
     visitCount: 650,
+    tags: ["coffee", "food", "social"],
+    posts: []
   },
 ];

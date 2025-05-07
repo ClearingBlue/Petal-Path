@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, MapPin, ImagePlus, X, Search, Loader2 } from "lucide-react"
+import { ArrowLeft, MapPin, ImagePlus, X, Search, Loader2, PlusCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -213,7 +213,7 @@ export default function CreatePost() {
         </div>
       </header>
       <div className="flex-1 p-4 space-y-6 max-w-2xl mx-auto w-full">
-        {/* 照片上传区域 */}
+        {/* Photo upload area */}
         <div 
           className="aspect-square bg-muted rounded-md relative overflow-hidden"
           onClick={() => fileInputRef.current?.click()}
@@ -254,7 +254,7 @@ export default function CreatePost() {
         </div>
 
         <div className="space-y-4">
-          {/* 描述 */}
+          {/* Description */}
           <div className="space-y-2">
             <Label htmlFor="description">Description</Label>
             <Textarea 
@@ -267,7 +267,7 @@ export default function CreatePost() {
             />
           </div>
 
-          {/* 标签 */}
+          {/* Tags */}
           <div className="space-y-2">
             <Label>Tags</Label>
             <div className="flex flex-wrap gap-2">
@@ -284,7 +284,7 @@ export default function CreatePost() {
             </div>
           </div>
 
-          {/* 位置 */}
+          {/* Location */}
           <div className="space-y-2">
             <Label htmlFor="location">Location</Label>
             <div className="flex items-center gap-2">
@@ -310,55 +310,89 @@ export default function CreatePost() {
         </div>
       </div>
 
-      {/* 位置选择对话框 */}
+      {/* Location selection dialog */}
       <Dialog open={isLocationDialogOpen} onOpenChange={setIsLocationDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md max-w-[90vw] w-full max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Select Location</DialogTitle>
           </DialogHeader>
           
-          {/* 地图组件 */}
-          {isLocationDialogOpen && (
-            <LocationMapWithNoSSR
-              selectedLocation={formData.location}
-              onSelectLocation={confirmLocation}
-            />
-          )}
-          
-          <div className="space-y-2 mt-4">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input 
-                id="locationSearch" 
-                placeholder="Search location..." 
-                className="pl-8"
-                value={searchTerm}
-                onChange={handleSearchChange}
-              />
-            </div>
-            
-            <div className="mt-2 h-[200px] overflow-y-auto space-y-1">
-              {filteredLocations.length > 0 ? (
-                filteredLocations.map(location => (
-                  <Button 
-                    key={location.id}
-                    variant={formData.location === location.name ? "default" : "outline"} 
-                    className="w-full justify-start" 
-                    onClick={() => confirmLocation(location.name)}
-                  >
-                    <MapPin className="h-4 w-4 mr-2" />
-                    <span>{location.name}</span>
-                  </Button>
-                ))
-              ) : (
-                <div className="flex h-full items-center justify-center text-muted-foreground">
-                  No locations found
-                </div>
-              )}
+          <div className="overflow-y-auto flex-1 pr-1 -mr-1">
+            <div className="space-y-4">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  id="locationSearch" 
+                  placeholder="Search location..." 
+                  className="pl-8"
+                  value={searchTerm}
+                  onChange={handleSearchChange}
+                />
+              </div>
+              
+              {/* Map */}
+              <div className="w-full h-[30vh] sm:h-[300px]">
+                {isLocationDialogOpen && (
+                  <LocationMapWithNoSSR
+                    selectedLocation={formData.location}
+                    onSelectLocation={confirmLocation}
+                  />
+                )}
+              </div>
+              
+              {/* Location list */}
+              <div className="max-h-[25vh] sm:max-h-[200px] overflow-y-auto space-y-1">
+                {filteredLocations.length > 0 ? (
+                  filteredLocations.map(location => (
+                    <Button 
+                      key={location.id}
+                      variant={formData.location === location.name ? "default" : "outline"} 
+                      className="w-full justify-start text-left" 
+                      onClick={() => confirmLocation(location.name)}
+                    >
+                      <MapPin className="h-4 w-4 min-w-4 mr-2 flex-shrink-0" />
+                      <span className="truncate">{location.name}</span>
+                    </Button>
+                  ))
+                ) : (
+                  <div className="py-4 text-center">
+                    <p className="text-muted-foreground">No results for "{searchTerm}"</p>
+                    <Button 
+                      variant="outline" 
+                      className="mt-2" 
+                      onClick={() => {
+                        setIsLocationDialogOpen(false);
+                        router.push("/create/location");
+                      }}
+                    >
+                      <PlusCircle className="h-4 w-4 mr-2" />
+                      Create New Location
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Create new location */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pt-2 border-t">
+                <p className="text-sm text-muted-foreground">Can't find your location?</p>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  className="self-end sm:self-auto"
+                  onClick={() => {
+                    setIsLocationDialogOpen(false);
+                    router.push("/create/location");
+                  }}
+                >
+                  <PlusCircle className="h-4 w-4 mr-2" />
+                  Create New Location
+                </Button>
+              </div>
             </div>
           </div>
           
-          <DialogFooter>
+          <DialogFooter className="sm:justify-end mt-4">
             <Button variant="secondary" onClick={() => setIsLocationDialogOpen(false)}>Cancel</Button>
           </DialogFooter>
         </DialogContent>

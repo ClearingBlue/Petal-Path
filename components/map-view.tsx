@@ -364,9 +364,6 @@ export default function MapView() {
                           <Badge variant="secondary" className="bg-black/30 text-white text-xs">
                             #{selectedLocationData.category}
                           </Badge>
-                          <Badge variant="secondary" className="bg-black/30 text-white text-xs">
-                            {selectedLocationData.rating.toFixed(1)}★
-                          </Badge>
                         </div>
                       </div>
                     </div>
@@ -387,9 +384,6 @@ export default function MapView() {
                   <div className="flex gap-1">
                     <Badge variant="secondary">
                       #{selectedLocationData.category}
-                    </Badge>
-                    <Badge variant="secondary">
-                      {selectedLocationData.rating.toFixed(1)}★
                     </Badge>
                   </div>
                   <div className="space-y-4">

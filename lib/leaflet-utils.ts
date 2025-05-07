@@ -26,20 +26,32 @@ export function calculateDistance(
 
 // Create a custom icon for markers
 export function createMarkerIcon(color: string, selected: boolean) {
+  // 使用固定的粉色而不是传入的颜色
+  const pinkColor = "#f472b6"; // 粉色
+  const darkPinkColor = "#db2777"; // 深粉色(选中状态)
+  const markerColor = selected ? darkPinkColor : pinkColor;
+  
+  // 花瓣形状的SVG图标 - 更精致的设计
   return {
-    iconUrl: `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${color}" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="${
-      selected ? 5 : 3
-    }" fill="white"></circle></svg>`,
-    iconSize: [30, 30] as PointTuple,
-    iconAnchor: [15, 30] as PointTuple,
-    popupAnchor: [0, -30] as PointTuple,
+    iconUrl: `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 125" fill="${markerColor}" stroke="#ffffff" stroke-width="2">
+    <path d="M50 20C43.8 20 38.3 22.2 34 26C29.7 29.8 27 35 27 40.9C27 46.8 30 52.1 33.3 57.3C36.7 62.5 40.5 67.6 43.8 72.6C45.4 75.1 46.9 77.6 48 80.1C48.5 81.1 48.9 82.1 49.2 83.1C49.3 83.4 49.4 83.8 49.5 84.1C49.6 84.4 49.6 84.8 50 85C50.4 84.8 50.4 84.4 50.5 84.1C50.6 83.8 50.7 83.4 50.8 83.1C51.1 82.1 51.5 81.1 52 80.1C53.1 77.6 54.6 75.1 56.2 72.6C59.5 67.6 63.3 62.5 66.7 57.3C70 52.1 73 46.8 73 40.9C73 35 70.3 29.8 66 26C61.7 22.2 56.2 20 50 20z"/>
+    <circle cx="50" cy="40.9" r="${selected ? 9 : 7}" fill="white"/>
+    </svg>`)}`,
+    iconSize: [36, 46] as PointTuple,
+    iconAnchor: [18, 46] as PointTuple,
+    popupAnchor: [0, -46] as PointTuple,
   };
 }
 
 // Create a custom icon for user location
 export function createUserLocationIcon() {
+  // 用户位置图标使用紫罗兰色调
   return {
-    iconUrl: `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%234285F4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4" fill="white"></circle></svg>`,
+    iconUrl: `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9" fill="#a78bfa" opacity="0.6" />
+    <circle cx="12" cy="12" r="6" fill="#a78bfa" opacity="0.8" />
+    <circle cx="12" cy="12" r="3" fill="white" />
+    </svg>`)}`,
     iconSize: [24, 24] as PointTuple,
     iconAnchor: [12, 12] as PointTuple,
     popupAnchor: [0, -12] as PointTuple,
