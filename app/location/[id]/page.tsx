@@ -3,10 +3,9 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
-feature/profile-view-updates
-import React, { use } from "react"
-import { ArrowLeft, MapPin } from "lucide-react"
-main
+import React, { use, useState, useEffect } from "react"
+import { ArrowLeft, MapPin, ChevronUp, ChevronDown, MessageCircle } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -206,7 +205,7 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
                     </CardHeader>
                     <CardContent className="p-0 pt-4" onClick={() => handlePostClick(post.id)}>
                       <img
-                        src={post.image || "/placeholder.svg"}
+                        src={post.images && post.images.length > 0 ? post.images[0] : "/placeholder.svg"}
                         alt={post.title}
                         className="w-full aspect-square object-cover"
                       />

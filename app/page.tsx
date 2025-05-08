@@ -119,6 +119,7 @@ export default function Home() {
           <TabsTrigger
             value="create"
             className="flex flex-col items-center justify-center rounded-md data-[state=active]:bg-muted"
+            onClick={() => router.push("/create")}
           >
             <PenSquare className="h-5 w-5" />
             <span className="text-xs">Create</span>
