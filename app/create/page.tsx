@@ -47,53 +47,78 @@ export default function CreatePost() {
     location: "",
     tags: [] as string[]
   });
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [isLocationDialogOpen, setIsLocationDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState(""); 
 
-  // 处理表单输入变化
+  // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // 处理图像选择
+  // Handle image selection
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    // 检查文件类型
-    if (!file.type.startsWith('image/')) {
+    // Check file types
+    const invalidFiles = files.filter(file => !file.type.startsWith('image/'));
+    if (invalidFiles.length > 0) {
       toast({
         title: "Error",
-        description: "Please select an image file",
+        description: "Please select only image files",
         variant: "destructive",
       });
       return;
     }
 
-    setImageFile(file);
-    
-    // 创建预览
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
+    // Limit to 5 images
+    const remainingSlots = 5 - imageFiles.length;
+    if (remainingSlots <= 0) {
+      toast({
+        title: "Error",
+        description: "You can upload up to 5 images",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  // 处理图像移除
-  const handleRemoveImage = () => {
-    setImageFile(null);
-    setImagePreview(null);
+    // Only take the first N files that fit within the limit
+    const filesToAdd = files.slice(0, remainingSlots);
+    if (files.length > remainingSlots) {
+      toast({
+        title: "Notice",
+        description: `Only the first ${remainingSlots} image${remainingSlots > 1 ? 's' : ''} will be added`,
+      });
+    }
+
+    setImageFiles(prev => [...prev, ...filesToAdd]);
+    
+    // Create previews
+    filesToAdd.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreviews(prev => [...prev, reader.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // Reset the input value to allow selecting the same file again
     if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      fileInputRef.current.value = '';
     }
   };
 
-  // 切换标签选择
+  // Handle image removal
+  const handleRemoveImage = (index: number) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Toggle tag selection
   const toggleTag = (tag: string) => {
     setFormData(prev => {
       const tags = [...prev.tags];
@@ -109,25 +134,25 @@ export default function CreatePost() {
     });
   };
 
-  // 确认位置选择
+  // Confirm location selection
   const confirmLocation = (location: string) => {
     setFormData(prev => ({ ...prev, location }));
     setIsLocationDialogOpen(false);
   };
   
-  // 处理搜索输入
+  // Handle search input
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value.toLowerCase());
   };
   
-  // 过滤位置列表
+  // Filter locations list
   const filteredLocations = locations.filter(location => 
     location.name.toLowerCase().includes(searchTerm)
   );
 
-  // 提交表单
+  // Submit form
   const handleSubmit = async () => {
-    // 验证表单
+    // Validate form
     if (!formData.description.trim()) {
       toast({
         title: "Please enter a description",
@@ -136,9 +161,9 @@ export default function CreatePost() {
       return;
     }
 
-    if (!imageFile) {
+    if (imageFiles.length === 0) {
       toast({
-        title: "Please add a photo",
+        title: "Please add at least one photo",
         variant: "destructive",
       });
       return;
@@ -155,20 +180,20 @@ export default function CreatePost() {
     try {
       setIsSubmitting(true);
       
-      // 模拟图像上传过程，在实际应用中我们会处理实际上传
-      // 演示目的，我们将直接使用预览URL
-      const imageUrl = imagePreview || "";
+      // In a real app, we would upload the images to a storage service
+      // For demo purposes, we'll use the preview URLs
+      const imageUrls = imagePreviews;
       
-      // 创建新帖子 - 从描述的前几个词生成标题
+      // Create new post - generate title from first few words of description
       const generatedTitle = formData.description.split(' ').slice(0, 3).join(' ') + '...';
       
-      // 创建新帖子
+      // Create new post
       await createPost({
         title: generatedTitle,
         content: formData.description,
         location: formData.location,
         tags: formData.tags,
-        imageUrl
+        imageUrls
       });
       
       toast({
@@ -176,7 +201,7 @@ export default function CreatePost() {
         description: "Your post has been published",
       });
 
-      // 重定向到Feed页面
+      // Redirect to Feed page
       router.push("/");
       
     } catch (error) {
@@ -212,100 +237,103 @@ export default function CreatePost() {
           </Button>
         </div>
       </header>
-      <div className="flex-1 p-4 space-y-6 max-w-2xl mx-auto w-full">
+      
+      <div className="container max-w-md mx-auto p-4 space-y-4">
         {/* Photo upload area */}
-        <div 
-          className="aspect-square bg-muted rounded-md relative overflow-hidden"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          {imagePreview ? (
-            <>
-              <Image 
-                src={imagePreview} 
-                alt="Post preview" 
-                fill 
-                className="object-cover"
-              />
-              <Button 
-                variant="destructive" 
-                size="icon" 
-                className="absolute top-2 right-2 rounded-full opacity-90"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRemoveImage();
-                }}
+        <div className="space-y-2">
+          <Label>Photos (up to 5)</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {imagePreviews.map((preview, index) => (
+              <div key={index} className="aspect-square bg-muted rounded-md relative overflow-hidden group">
+                <Image 
+                  src={preview} 
+                  alt={`Preview ${index + 1}`} 
+                  fill 
+                  className="object-cover"
+                />
+                <Button 
+                  variant="destructive" 
+                  size="icon" 
+                  className="absolute top-2 right-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => handleRemoveImage(index)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            {imagePreviews.length < 5 && (
+              <div 
+                className="aspect-square bg-muted rounded-md relative overflow-hidden cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
               >
-                <X className="h-4 w-4" />
-              </Button>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full cursor-pointer">
-              <ImagePlus className="h-12 w-12 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground">Click to add a photo</p>
-            </div>
-          )}
+                <div className="flex flex-col items-center justify-center h-full">
+                  <ImagePlus className="h-12 w-12 text-muted-foreground mb-2" />
+                  <p className="text-muted-foreground">Add photo</p>
+                </div>
+              </div>
+            )}
+          </div>
           <input 
             type="file" 
             accept="image/*" 
+            multiple
             className="hidden" 
             ref={fileInputRef} 
             onChange={handleImageChange}
           />
         </div>
 
-        <div className="space-y-4">
-          {/* Description */}
-          <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea 
-              id="description" 
-              name="description"
-              value={formData.description}
-              onChange={handleInputChange}
-              placeholder="Add a description..." 
-              className="min-h-[100px]" 
-            />
-          </div>
+        {/* Description */}
+        <div className="space-y-2">
+          <Label htmlFor="description">Description</Label>
+          <Textarea 
+            id="description" 
+            name="description"
+            value={formData.description}
+            onChange={handleInputChange}
+            placeholder="Add a description..." 
+            className="min-h-[100px]" 
+          />
+        </div>
 
-          {/* Tags */}
-          <div className="space-y-2">
-            <Label>Tags</Label>
-            <div className="flex flex-wrap gap-2">
-              {PRESET_TAGS.map(tag => (
-                <Badge 
-                  key={tag}
-                  variant={formData.tags.includes(tag) ? "default" : "outline"}
-                  className="cursor-pointer"
-                  onClick={() => toggleTag(tag)}
-                >
-                  #{tag}
-                </Badge>
-              ))}
-            </div>
-          </div>
-
-          {/* Location */}
-          <div className="space-y-2">
-            <Label htmlFor="location">Location</Label>
-            <div className="flex items-center gap-2">
-              <Input 
-                id="location" 
-                name="location"
-                value={formData.location}
-                onChange={handleInputChange}
-                placeholder="Select a location" 
-                readOnly
+        {/* Tags */}
+        <div className="space-y-2">
+          <Label>Tags</Label>
+          <div className="flex flex-wrap gap-2">
+            {PRESET_TAGS.map(tag => (
+              <Badge 
+                key={tag}
+                variant={formData.tags.includes(tag) ? "default" : "outline"}
                 className="cursor-pointer"
-                onClick={() => setIsLocationDialogOpen(true)}
-              />
-              <Button 
-                variant="outline" 
-                size="icon"
-                onClick={() => setIsLocationDialogOpen(true)}
+                onClick={() => toggleTag(tag)}
               >
-                <MapPin className="h-4 w-4" />
-              </Button>
-            </div>
+                #{tag}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        {/* Location */}
+        <div className="space-y-2">
+          <Label htmlFor="location">Location</Label>
+          <div className="flex items-center gap-2">
+            <Input 
+              id="location" 
+              name="location"
+              value={formData.location}
+              onChange={handleInputChange}
+              placeholder="Select a location" 
+              readOnly
+              className="cursor-pointer"
+              onClick={() => setIsLocationDialogOpen(true)}
+            />
+            <Button 
+              variant="outline" 
+              size="icon"
+              onClick={() => setIsLocationDialogOpen(true)}
+            >
+              <MapPin className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </div>
@@ -342,7 +370,7 @@ export default function CreatePost() {
               </div>
               
               {/* Location list */}
-              <div className="max-h-[25vh] sm:max-h-[200px] overflow-y-auto space-y-1">
+              <div className="space-y-2">
                 {filteredLocations.length > 0 ? (
                   filteredLocations.map(location => (
                     <Button 
@@ -374,7 +402,7 @@ export default function CreatePost() {
               </div>
 
               {/* Create new location */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pt-2 border-t">
+              <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">Can't find your location?</p>
                 <Button 
                   variant="ghost" 

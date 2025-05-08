@@ -8,7 +8,7 @@ export interface CreatePostInput {
   content: string;
   location: string;
   tags: string[];
-  imageUrl: string;
+  imageUrls: string[];
 }
 
 // Mock post creation function
@@ -23,8 +23,10 @@ export async function createPost(input: CreatePostInput): Promise<number> {
     // Create new post ID (use current max ID + 1)
     const newId = Math.max(...posts.map(post => post.id)) + 1;
     
-    // Use mock image or user provided image URL
-    const imageUrl = input.imageUrl || getUnsplashImage("post", newId, 400, 400);
+    // Use mock image or user provided image URLs
+    const imageUrls = input.imageUrls.length > 0 
+      ? input.imageUrls 
+      : [getUnsplashImage("post", newId, 400, 400)];
     
     // Create new post object
     const newPost: Post = {
@@ -32,7 +34,7 @@ export async function createPost(input: CreatePostInput): Promise<number> {
       user: currentUser,
       location: input.location,
       locationId: locationObj.id,
-      image: imageUrl,
+      images: imageUrls,
       title: input.title,
       description: input.content,
       tags: input.tags,

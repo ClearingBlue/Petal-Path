@@ -178,11 +178,16 @@ export default function ProfileView() {
                   onClick={() => handlePostClick(post.id)}
                 >
                   <img 
-                    src={post.image || "/placeholder.svg"} 
+                    src={post.images[0] || "/placeholder.svg"} 
                     alt={post.title} 
                     className="w-full h-full object-cover transition-transform group-hover:scale-105"
                     onError={() => handleImageError(`post-${post.id}`)}
                   />
+                  {post.images.length > 1 && (
+                    <div className="absolute top-2 right-2 bg-background/80 rounded-full px-2 py-1 text-xs">
+                      +{post.images.length - 1}
+                    </div>
+                  )}
                   {imageError[`post-${post.id}`] && (
                     <div className="absolute inset-0 flex items-center justify-center bg-muted">
                       <span className="text-xs text-muted-foreground">Image not available</span>

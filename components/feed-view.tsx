@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, memo } from "react"
 import { useRouter } from "next/navigation"
-import { Heart, MessageCircle, Share2, Bookmark, MapPin, ChevronUp, ChevronDown } from "lucide-react"
+import { Heart, MessageCircle, Share2, Bookmark, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -10,177 +10,299 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { getPosts } from "@/lib/data"
 import { getLocationByName } from "@/lib/data/services/location-service"
 
+const PostCard = memo(({ 
+  post, 
+  onVote, 
+  onComment, 
+  onPostClick, 
+  onImageNavigation, 
+  onImageError,
+  votedPosts,
+  postLikes,
+  currentImageIndices,
+  imageError 
+}: {
+  post: any;
+  onVote: (postId: number, direction: "up" | "down", e: React.MouseEvent) => void;
+  onComment: (postId: number, e: React.MouseEvent) => void;
+  onPostClick: (postId: number) => void;
+  onImageNavigation: (postId: number, direction: "prev" | "next", e: React.MouseEvent) => void;
+  onImageError: (postId: number, imageIndex: number) => void;
+  votedPosts: Record<number, "up" | "down" | null>;
+  postLikes: Record<number, number>;
+  currentImageIndices: Record<number, number>;
+  imageError: Record<string, boolean>;
+}) => {
+  const router = useRouter();
+  const currentIndex = currentImageIndices[post.id] ?? 0;
+
+  const getLocationIdByName = (locationName: string): number => {
+    const location = getLocationByName(locationName);
+    return location?.id || 0;
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="p-4 pb-0">
+        <div className="flex items-center space-x-2">
+          <Avatar 
+            className="w-10 h-10 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => router.push(`/profile/${post.user.id}`)}
+          >
+            <AvatarImage src={post.user.avatar} />
+            <AvatarFallback>{post.user.name.charAt(0)}</AvatarFallback>
+          </Avatar>
+          <div 
+            className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => router.push(`/profile/${post.user.id}`)}
+          >
+            <div className="font-semibold">{post.user.name}</div>
+            <div className="text-xs text-muted-foreground">{post.user.username}</div>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0 pt-4" onClick={() => onPostClick(post.id)}>
+        <div className="relative group" data-testid={`image-container-${post.id}`}>
+          {post.images.length > 0 ? (
+            <div className="aspect-square relative overflow-hidden">
+              {post.images.map((image: string, index: number) => {
+                const isVisible = index === currentIndex;
+                
+                return (
+                  <div 
+                    key={index} 
+                    className={`absolute inset-0 transition-opacity duration-300 ${
+                      isVisible ? 'opacity-100' : 'opacity-0'
+                    }`}
+                  >
+                    <img
+                      src={image || "/placeholder.svg"}
+                      alt={`${post.title} - Image ${index + 1}`}
+                      className="w-full h-full object-cover"
+                      onError={() => onImageError(post.id, index)}
+                    />
+                  </div>
+                );
+              })}
+              {post.images.length > 1 && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    onClick={(e) => onImageNavigation(post.id, "prev", e)}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    onClick={(e) => onImageNavigation(post.id, "next", e)}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-1">
+                    {post.images.map((_: string, index: number) => (
+                      <div
+                        key={index}
+                        data-testid={`image-dot-${post.id}-${index}`}
+                        className={`w-2 h-2 rounded-full transition-colors ${
+                          currentIndex === index ? "bg-white" : "bg-white/50"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+              {imageError[`post-${post.id}-${currentIndex}`] && (
+                <div className="absolute inset-0 flex items-center justify-center bg-muted">
+                  <span className="text-xs text-muted-foreground">Image not available</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="aspect-square relative overflow-hidden bg-muted">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-sm text-muted-foreground">No images</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="p-4 space-y-2">
+          <div className="flex items-center mb-2">
+            <span 
+              className="flex items-center gap-2 cursor-pointer" 
+              onClick={(e) => {
+                e.stopPropagation();
+                const locationId = getLocationIdByName(post.location);
+                router.push(`/location/${locationId}`);
+              }}
+            >
+              <MapPin className="h-5 w-5 text-rose-500" />
+              <span className="text-lg font-semibold text-foreground">{post.location}</span>
+            </span>
+          </div>
+          {post.description && <p className="text-sm text-muted-foreground">{post.description}</p>}
+          <div className="flex flex-wrap gap-1">
+            {post.tags.map((tag: string) => (
+              <Badge key={tag} variant="secondary">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+      <CardFooter className="p-4 pt-0 flex justify-between">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`h-8 w-8 p-0 ${votedPosts[post.id] === "up" ? "text-green-500" : ""}`}
+            onClick={(e) => onVote(post.id, "up", e)}
+          >
+            <ChevronUp className="h-4 w-4" />
+          </Button>
+          <span className="text-sm font-medium">{postLikes[post.id] !== undefined ? postLikes[post.id] : post.likes}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`h-8 w-8 p-0 ${votedPosts[post.id] === "down" ? "text-red-500" : ""}`}
+            onClick={(e) => onVote(post.id, "down", e)}
+          >
+            <ChevronDown className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" 
+            onClick={(e) => onComment(post.id, e)}>
+            <MessageCircle className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardFooter>
+    </Card>
+  );
+});
+
+PostCard.displayName = 'PostCard';
+
 export default function FeedView() {
   const router = useRouter()
   const posts = getPosts()
   const [votedPosts, setVotedPosts] = useState<Record<number, "up" | "down" | null>>({})
   const [postLikes, setPostLikes] = useState<Record<number, number>>({})
   const [isMounted, setIsMounted] = useState(false)
+  const [imageError, setImageError] = useState<Record<string, boolean>>({})
+  const [currentImageIndices, setCurrentImageIndices] = useState<Record<number, number>>({})
 
   useEffect(() => {
     setIsMounted(true)
-    // 初始化帖子点赞数
+    // Initialize post likes and image indices
     const initialLikes: Record<number, number> = {};
+    const initialIndices: Record<number, number> = {};
     posts.forEach(post => {
       initialLikes[post.id] = post.likes;
+      if (post.images.length > 0) {
+        initialIndices[post.id] = 0;
+      }
     });
     setPostLikes(initialLikes);
+    setCurrentImageIndices(initialIndices);
   }, [])
 
-  const handlePostClick = (postId: number) => {
+  const handlePostClick = useCallback((postId: number) => {
+    if (!isMounted) return;
     router.push(`/post/${postId}`)
-  }
+  }, [isMounted, router])
 
-  const handleCommentClick = (postId: number, e: React.MouseEvent) => {
-    if (!isMounted) return
-    e.stopPropagation()
+  const handleCommentClick = useCallback((postId: number, e: React.MouseEvent) => {
+    if (!isMounted) return;
+    e.preventDefault();
+    e.stopPropagation();
     router.push(`/post/${postId}#comments`)
-  }
+  }, [isMounted, router])
 
-  // 通过位置名称获取正确的位置ID
-  const getLocationIdByName = (locationName: string): number => {
-    const location = getLocationByName(locationName)
-    return location?.id || 0
-  }
-
-  const handleVote = (postId: number, direction: "up" | "down") => {
-    // 获取当前投票状态
+  const handleVote = useCallback((postId: number, direction: "up" | "down", e: React.MouseEvent) => {
+    if (!isMounted) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
     const currentVote = votedPosts[postId];
     
-    // 取消投票的情况
     if (currentVote === direction) {
-      // 取消当前投票
       setVotedPosts(prev => {
         const newState = { ...prev };
         delete newState[postId];
         return newState;
       });
       
-      // 更新点赞数
       setPostLikes(prev => ({
         ...prev,
-        [postId]: prev[postId] + (direction === "up" ? -1 : 1) // 取消上投减1，取消下投加1
+        [postId]: prev[postId] + (direction === "up" ? -1 : 1)
       }));
-    } 
-    // 切换投票状态或首次投票
-    else {
-      // 更新投票状态
+    } else {
       setVotedPosts(prev => ({
         ...prev,
         [postId]: direction
       }));
       
-      // 计算并更新点赞数
       setPostLikes(prev => {
         const currentLikes = prev[postId] || 0;
         let newLikes = currentLikes;
         
-        // 1. 如果之前有投票，先撤销
         if (currentVote === "up") {
-          newLikes -= 1; // 撤销上投
+          newLikes -= 1;
         } else if (currentVote === "down") {
-          newLikes += 1; // 撤销下投
+          newLikes += 1;
         }
         
-        // 2. 应用新的投票
         if (direction === "up") {
-          newLikes += 1; // 上投加1
+          newLikes += 1;
         } else {
-          newLikes -= 1; // 下投减1
+          newLikes -= 1;
         }
         
         return { ...prev, [postId]: newLikes };
       });
     }
-  }
+  }, [isMounted, votedPosts])
+
+  const handleImageError = useCallback((postId: number, imageIndex: number) => {
+    setImageError(prev => ({ ...prev, [`post-${postId}-${imageIndex}`]: true }))
+  }, [])
+
+  const handleImageNavigation = useCallback((postId: number, direction: "prev" | "next", e: React.MouseEvent) => {
+    e.stopPropagation();
+    const post = posts.find(p => p.id === postId);
+    if (!post || !post.images.length) return;
+
+    setCurrentImageIndices(prev => {
+      const currentIndex = prev[postId] ?? 0;
+      const newIndex = direction === "next" 
+        ? (currentIndex + 1) % post.images.length
+        : (currentIndex - 1 + post.images.length) % post.images.length;
+      
+      return { ...prev, [postId]: newIndex };
+    });
+  }, [posts])
 
   return (
     <div className="flex-1 overflow-auto pb-20">
       <div className="container max-w-md mx-auto py-4 space-y-4">
-        {posts.map((post) => (
-          <Card key={post.id} className="overflow-hidden">
-            <CardHeader className="p-4 pb-0">
-              <div className="flex items-center space-x-2">
-                <Avatar 
-                  className="w-10 h-10 cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => router.push(`/profile/${post.user.id}`)}
-                >
-                  <AvatarImage src={post.user.avatar} />
-                  <AvatarFallback>{post.user.name.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div 
-                  className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => router.push(`/profile/${post.user.id}`)}
-                >
-                  <div className="font-semibold">{post.user.name}</div>
-                  <div className="text-xs text-muted-foreground">{post.user.username}</div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0 pt-4" onClick={() => handlePostClick(post.id)}>
-              <img
-                src={post.image || "/placeholder.svg"}
-                alt={post.title}
-                className="w-full aspect-square object-cover"
-              />
-              <div className="p-4 space-y-2">
-                <div className="flex items-center mb-2">
-                  <span 
-                    className="flex items-center gap-2 cursor-pointer" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const locationId = getLocationIdByName(post.location);
-                      router.push(`/location/${locationId}`);
-                    }}
-                  >
-                    <MapPin className="h-5 w-5 text-rose-500" />
-                    <span className="text-lg font-semibold text-foreground">{post.location}</span>
-                  </span>
-                </div>
-                {post.description && <p className="text-sm text-muted-foreground">{post.description}</p>}
-                <div className="flex flex-wrap gap-1">
-                  {post.tags.map((tag) => (
-                    <Badge key={tag} variant="secondary">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="p-4 pt-0 flex justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={`h-8 w-8 p-0 ${votedPosts[post.id] === "up" ? "text-green-500" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleVote(post.id, "up")
-                  }}
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </Button>
-                <span className="text-sm font-medium">{postLikes[post.id] !== undefined ? postLikes[post.id] : post.likes}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={`h-8 w-8 p-0 ${votedPosts[post.id] === "down" ? "text-red-500" : ""}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleVote(post.id, "down")
-                  }}
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" 
-                  onClick={(e) => handleCommentClick(post.id, e)}>
-                  <MessageCircle className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardFooter>
-          </Card>
+        {posts.map((post, postIndex) => (
+          <PostCard
+            key={post.id}
+            post={post}
+            onVote={handleVote}
+            onComment={handleCommentClick}
+            onPostClick={handlePostClick}
+            onImageNavigation={handleImageNavigation}
+            onImageError={handleImageError}
+            votedPosts={votedPosts}
+            postLikes={postLikes}
+            currentImageIndices={currentImageIndices}
+            imageError={imageError}
+          />
         ))}
       </div>
     </div>

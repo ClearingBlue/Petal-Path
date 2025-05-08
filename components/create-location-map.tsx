@@ -38,7 +38,11 @@ export default function CreateLocationMap({ onLocationCreated }: CreateLocationM
           setUserLocation([position.coords.latitude, position.coords.longitude])
         },
         (error) => {
-          console.error("Error getting user location:", error)
+          if (error && typeof error === 'object' && 'message' in error) {
+            console.error("Error getting user location:", (error as GeolocationPositionError).message)
+          } else {
+            console.error("Error getting user location:", error)
+          }
           // 默认斯坦福坐标
           setUserLocation([37.4275, -122.1697])
         }

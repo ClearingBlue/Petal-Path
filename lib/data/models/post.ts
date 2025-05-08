@@ -10,7 +10,7 @@ export type Post = {
   user: User;
   location: string;
   locationId: number;
-  image: string;
+  images: string[];
   title: string;
   description: string;
   tags: string[];
@@ -26,7 +26,7 @@ export const posts: Post[] = [
     user: users[0],
     location: "Green Library",
     locationId: 1,
-    image: getUnsplashImage("post", 1, 400, 400),
+    images: [getUnsplashImage("post", 1, 400, 400)],
     title: "Perfect study spot",
     description:
       "Found this quiet corner with great natural lighting and power outlets!",
@@ -40,7 +40,7 @@ export const posts: Post[] = [
     user: users[1],
     location: "Tressider Union",
     locationId: 2,
-    image: getUnsplashImage("post", 2, 400, 400),
+    images: [getUnsplashImage("post", 2, 400, 400)],
     title: "Best lunch spot on campus",
     description: "The new salad bar is amazing! So many fresh options.",
     tags: ["#foodie", "#lunch"],
@@ -53,7 +53,7 @@ export const posts: Post[] = [
     user: users[2],
     location: "The Oval",
     locationId: 3,
-    image: getUnsplashImage("post", 3, 400, 400),
+    images: [getUnsplashImage("post", 3, 400, 400)],
     title: "Spring vibes",
     description: "Perfect day for studying outside. The flowers are blooming!",
     tags: ["#nature", "#outdoors"],
@@ -66,7 +66,7 @@ export const posts: Post[] = [
     user: users[0],
     location: "Green Library",
     locationId: 1,
-    image: getUnsplashImage("post", 4, 400, 400),
+    images: [getUnsplashImage("post", 4, 400, 400)],
     title: "Hidden study room",
     description:
       "Just discovered this hidden study room on the 3rd floor. So quiet and peaceful!",
@@ -80,7 +80,7 @@ export const posts: Post[] = [
     user: users[3],
     location: "The Oval",
     locationId: 3,
-    image: getUnsplashImage("post", 5, 400, 400),
+    images: [getUnsplashImage("post", 5, 400, 400)],
     title: "Morning run",
     description:
       "Nothing beats a morning run around The Oval. The sunrise was beautiful today!",
@@ -94,7 +94,7 @@ export const posts: Post[] = [
     user: users[4],
     location: "Memorial Church",
     locationId: 4,
-    image: getUnsplashImage("post", 6, 400, 400),
+    images: [getUnsplashImage("post", 6, 400, 400)],
     title: "Architectural beauty",
     description:
       "The details on this building are incredible. Such a peaceful place to reflect.",
@@ -108,7 +108,7 @@ export const posts: Post[] = [
     user: users[5],
     location: "CoHo Coffee House",
     locationId: 5,
-    image: getUnsplashImage("post", 7, 400, 400),
+    images: [getUnsplashImage("post", 7, 400, 400)],
     title: "Best coffee on campus",
     description: "Their new seasonal latte is to die for! Perfect study fuel.",
     tags: ["#coffee", "#studyspot", "#foodie"],

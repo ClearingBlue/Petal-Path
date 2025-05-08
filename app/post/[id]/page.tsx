@@ -44,6 +44,7 @@ export default function PostDetail({ params }: { params: { id: string } }) {
   const [replyText, setReplyText] = useState("")
   const [showDeletePostAlert, setShowDeletePostAlert] = useState(false)
   const [isPostOwner, setIsPostOwner] = useState(false)
+  const [imageError, setImageError] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     // Fetch comments
@@ -277,6 +278,10 @@ export default function PostDetail({ params }: { params: { id: string } }) {
     }
   }
 
+  const handleImageError = (imageIndex: number) => {
+    setImageError(prev => ({ ...prev, [`image-${imageIndex}`]: true }))
+  }
+
   if (!post) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center">
@@ -326,11 +331,28 @@ export default function PostDetail({ params }: { params: { id: string } }) {
           </div>
 
           <div className="mt-4">
-            <img
-              src={post.image || "/placeholder.svg"}
-              alt={post.title}
-              className="w-full aspect-square object-cover"
-            />
+            <div className="grid grid-cols-2 gap-1">
+              {post.images.map((image, index) => (
+                <div key={index} className="aspect-square relative overflow-hidden">
+                  <img
+                    src={image || "/placeholder.svg"}
+                    alt={`${post.title} - Image ${index + 1}`}
+                    className="w-full h-full object-cover"
+                    onError={() => handleImageError(index)}
+                  />
+                  {index === 0 && post.images.length > 1 && (
+                    <div className="absolute top-2 right-2 bg-background/80 rounded-full px-2 py-1 text-xs">
+                      +{post.images.length - 1}
+                    </div>
+                  )}
+                  {imageError[`image-${index}`] && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-muted">
+                      <span className="text-xs text-muted-foreground">Image not available</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="p-4 space-y-2">
