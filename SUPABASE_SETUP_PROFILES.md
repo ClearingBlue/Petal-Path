@@ -46,19 +46,45 @@ create policy "Users can delete own avatar" on storage.objects
   );
 ```
 
-## 4. Update Profiles Table Policies (if needed)
+## 4. Update Profiles Table Policies (v2 – Public Read)
+
+> If you already applied the policies from the previous version of this guide, run the **drop** statements first and then the new **create** statements. These policies keep write-operations restricted to the owner, while allowing *any* visitor (even not signed-in) to read the public profile fields so that post authors show up correctly for everyone.
+
 ```sql
--- Update profiles table policies to allow public read
-drop policy if exists "Users can manage own profile" on public.profiles;
-create policy "Users can view all profiles" on public.profiles
-  for select using ( true );
-create policy "Users can insert own profile" on public.profiles
-  for insert with check ( auth.uid() = id );
-create policy "Users can update own profile" on public.profiles
-  for update using ( auth.uid() = id );
-create policy "Users can delete own profile" on public.profiles
-  for delete using ( auth.uid() = id );
+-- 1) Remove the old policy (if it exists)
+drop policy if exists "Users can view all profiles" on public.profiles;
+
+-- 2) Allow EVERYONE (anon + authenticated) to read all profiles
+create policy "Public can read profiles" on public.profiles
+  for select
+  using ( true );
+
+-- 3) Keep owner-only insert / update / delete
+-- (drop the old ones first – they may already exist)
+drop policy if exists "Users can insert own profile" on public.profiles;
+drop policy if exists "Users can update own profile" on public.profiles;
+drop policy if exists "Users can delete own profile" on public.profiles;
+
+create policy "User can insert own profile" on public.profiles
+  for insert
+  with check ( auth.uid() = id );
+
+create policy "User can update own profile" on public.profiles
+  for update
+  using ( auth.uid() = id );
+
+create policy "User can delete own profile" on public.profiles
+  for delete
+  using ( auth.uid() = id );
 ```
+
+### Why this upgrade?
+* The previous policy only allowed the row owner to read the record, causing other users to see blank avatars / names.
+* A fully open `select` policy is safe because profile rows **do not** contain sensitive data after you limit the columns you expose in your UI (e.g. no email address).
+* Write operations remain protected – only the profile owner can modify or delete their data.
+
+> **Need stricter privacy?**
+> Replace step 2 with `using ( auth.role() = 'authenticated' )` so anonymous visitors cannot read profiles, or create a `VIEW` that exposes only the public columns and open the policy on that view instead of the base table.
 
 ## 5. Test the Profile System
 1. **Login** to your app

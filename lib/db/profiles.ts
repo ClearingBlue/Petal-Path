@@ -52,7 +52,44 @@ export async function fetchProfileById(userId: string): Promise<Profile | null> 
     .single()
 
   if (error) {
-    console.error('Error fetching profile:', error)
+    // If profile doesn't exist, try to create one
+    if (error.code === 'PGRST116') {
+      console.log(`Profile not found for user ${userId}, attempting to create one`)
+      try {
+        // Get user info from auth to create profile
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user && user.id === userId) {
+          // Only create profile if it's for the current authenticated user
+          return await ensureProfileExists(userId, user.email || '')
+        } else {
+          // For other users, we can't create a profile without their email
+          // Return a minimal profile with just the ID
+          console.warn(`Cannot create profile for user ${userId} - not current user`)
+          return {
+            id: userId,
+            username: `user_${userId.slice(-8)}`,
+            full_name: 'Unknown User',
+            avatar_url: null,
+            bio: null,
+            location: null,
+            created_at: new Date().toISOString()
+          }
+        }
+      } catch (createError) {
+        console.error('Error creating profile for user:', userId, createError)
+        // Return a minimal profile as fallback
+        return {
+          id: userId,
+          username: `user_${userId.slice(-8)}`,
+          full_name: 'Unknown User',
+          avatar_url: null,
+          bio: null,
+          location: null,
+          created_at: new Date().toISOString()
+        }
+      }
+    }
+    console.error('Error fetching profile for user:', userId, error)
     return null
   }
 

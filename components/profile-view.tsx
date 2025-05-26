@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
 import { fetchPostsByUser } from "@/lib/db/posts"
 import { fetchUserVisitedLocations } from "@/lib/db/user-locations"
+import { getUserStats, type UserStats } from "@/lib/db/follows"
 import type { Post } from "@/lib/data/models/post"
 import type { ExtendedLocation } from "@/lib/data/models/location"
 
@@ -19,6 +20,7 @@ export default function ProfileView() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [userPosts, setUserPosts] = useState<Post[]>([])
   const [visitedLocations, setVisitedLocations] = useState<ExtendedLocation[]>([])
+  const [userStats, setUserStats] = useState<UserStats>({ followers_count: 0, following_count: 0, posts_count: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
 
@@ -31,14 +33,16 @@ export default function ProfileView() {
         const userProfile = await fetchCurrentUserProfile()
         setProfile(userProfile)
         
-        // Load user's posts and visited locations
+        // Load user's posts, visited locations, and stats
         if (userProfile) {
-          const [posts, locations] = await Promise.all([
+          const [posts, locations, stats] = await Promise.all([
             fetchPostsByUser(userProfile.id),
-            fetchUserVisitedLocations(userProfile.id)
+            fetchUserVisitedLocations(userProfile.id),
+            getUserStats(userProfile.id)
           ])
           setUserPosts(posts)
           setVisitedLocations(locations)
+          setUserStats(stats)
         }
         
       } catch (error) {
@@ -136,15 +140,15 @@ export default function ProfileView() {
         <div className="flex justify-between mb-6">
           <div className="flex gap-4">
             <div className="text-center">
-              <div className="font-bold">{userPosts.length}</div>
+              <div className="font-bold">{userStats.posts_count}</div>
               <div className="text-xs text-muted-foreground">Posts</div>
             </div>
             <div className="text-center">
-              <div className="font-bold">142</div>
+              <div className="font-bold">{userStats.followers_count}</div>
               <div className="text-xs text-muted-foreground">Followers</div>
             </div>
             <div className="text-center">
-              <div className="font-bold">98</div>
+              <div className="font-bold">{userStats.following_count}</div>
               <div className="text-xs text-muted-foreground">Following</div>
             </div>
           </div>

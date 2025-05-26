@@ -38,6 +38,24 @@ export async function fetchPosts(): Promise<Post[]> {
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
   
+  // For any missing profiles, try to fetch them individually (this will create them if needed)
+  const missingUserIds = userIds.filter(id => !profileMap.has(id))
+  if (missingUserIds.length > 0) {
+    console.log(`Found ${missingUserIds.length} users without profiles, attempting to resolve`)
+    const { fetchProfileById } = await import('./profiles')
+    
+    for (const userId of missingUserIds) {
+      try {
+        const profile = await fetchProfileById(userId)
+        if (profile) {
+          profileMap.set(userId, profile)
+        }
+      } catch (error) {
+        console.error(`Failed to resolve profile for user ${userId}:`, error)
+      }
+    }
+  }
+  
   // Get like counts for all posts
   const postIds = data?.map(post => post.id) || []
   const likeCounts = await getLikeCountsForPosts(postIds)
@@ -65,12 +83,9 @@ export async function fetchPostsByUser(userId: string): Promise<Post[]> {
 
   if (error) throw new Error(error.message)
 
-  // Get profile for this user
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, username, full_name, avatar_url')
-    .eq('id', userId)
-    .single()
+  // Get profile for this user using the improved fetchProfileById function
+  const { fetchProfileById } = await import('./profiles')
+  const profile = await fetchProfileById(userId)
 
   // Create a map of user profiles
   const profileMap = new Map(profile ? [[profile.id, profile]] : [])
@@ -111,6 +126,24 @@ export async function fetchPostsByLocation(locationId: number): Promise<Post[]> 
   
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
+  
+  // For any missing profiles, try to fetch them individually (this will create them if needed)
+  const missingUserIds = userIds.filter(id => !profileMap.has(id))
+  if (missingUserIds.length > 0) {
+    console.log(`Found ${missingUserIds.length} users without profiles in location ${locationId}, attempting to resolve`)
+    const { fetchProfileById } = await import('./profiles')
+    
+    for (const userId of missingUserIds) {
+      try {
+        const profile = await fetchProfileById(userId)
+        if (profile) {
+          profileMap.set(userId, profile)
+        }
+      } catch (error) {
+        console.error(`Failed to resolve profile for user ${userId}:`, error)
+      }
+    }
+  }
   
   // Get like counts for all posts
   const postIds = data?.map(post => post.id) || []
@@ -161,6 +194,24 @@ export async function fetchTopPostsByLocation(locationId: number, limit: number 
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
   
+  // For any missing profiles, try to fetch them individually (this will create them if needed)
+  const missingUserIds = userIds.filter(id => !profileMap.has(id))
+  if (missingUserIds.length > 0) {
+    console.log(`Found ${missingUserIds.length} users without profiles in top posts for location ${locationId}, attempting to resolve`)
+    const { fetchProfileById } = await import('./profiles')
+    
+    for (const userId of missingUserIds) {
+      try {
+        const profile = await fetchProfileById(userId)
+        if (profile) {
+          profileMap.set(userId, profile)
+        }
+      } catch (error) {
+        console.error(`Failed to resolve profile for user ${userId}:`, error)
+      }
+    }
+  }
+  
   return mapRowsToPosts(postsWithLikes, profileMap, likeCounts)
 }
 
@@ -187,12 +238,9 @@ export async function fetchPostById(id: number): Promise<Post | null> {
   
   if (!data) return null
   
-  // Get profile for this user
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, username, full_name, avatar_url')
-    .eq('id', data.user_id)
-    .single()
+  // Get profile for this user using the improved fetchProfileById function
+  const { fetchProfileById } = await import('./profiles')
+  const profile = await fetchProfileById(data.user_id)
   
   const profileMap = new Map(profile ? [[profile.id, profile]] : [])
   
@@ -299,12 +347,17 @@ function mapRowsToPosts(rows: any[], profileMap: Map<string, any>, likeCounts: M
 
 function mapRowToPost(row: any, profileMap: Map<string, any>, likeCounts: Map<number, number>): Post {
   const profile = profileMap.get(row.user_id)
+  
+  // Provide better fallbacks for missing profile data
+  const fallbackUsername = profile?.username || `user_${row.user_id?.slice(-8) || 'unknown'}`
+  const fallbackName = profile?.full_name || profile?.username || fallbackUsername
+  
   return {
     id: row.id,
     user: {
       id: row.user_id ?? 0,
-      name: profile?.full_name || '',
-      username: profile?.username || '',
+      name: fallbackName,
+      username: fallbackUsername,
       avatar: profile?.avatar_url || '',
     },
     location: row.locations?.name ?? '',

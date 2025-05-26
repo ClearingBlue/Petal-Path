@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { fetchPosts, togglePostLike, getUserLikedPosts, checkUserLikedPost } from '@/lib/db/posts'
+import { fetchCurrentUserProfile } from '@/lib/db/profiles'
 
 const PostCard = memo(({ 
   post, 
@@ -16,6 +17,7 @@ const PostCard = memo(({
   onPostClick, 
   onImageNavigation, 
   onImageError,
+  onAvatarClick,
   votedPosts,
   postLikes,
   currentImageIndices,
@@ -27,6 +29,7 @@ const PostCard = memo(({
   onPostClick: (postId: number) => void;
   onImageNavigation: (postId: number, direction: "prev" | "next", e: React.MouseEvent) => void;
   onImageError: (postId: number, imageIndex: number) => void;
+  onAvatarClick: (userId: string) => void;
   votedPosts: Record<number, "up" | "down" | null>;
   postLikes: Record<number, number>;
   currentImageIndices: Record<number, number>;
@@ -43,14 +46,14 @@ const PostCard = memo(({
         <div className="flex items-center space-x-2">
           <Avatar 
             className="w-10 h-10 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={() => router.push(`/profile/${post.user.id}`)}
+            onClick={() => onAvatarClick(post.user.id)}
           >
             <AvatarImage src={post.user.avatar} />
             <AvatarFallback>{post.user.name.charAt(0)}</AvatarFallback>
           </Avatar>
           <div 
             className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={() => router.push(`/profile/${post.user.id}`)}
+            onClick={() => onAvatarClick(post.user.id)}
           >
             <div className="font-semibold">{post.user.name}</div>
             <div className="text-xs text-muted-foreground">{post.user.username}</div>
@@ -190,17 +193,20 @@ export default function FeedView() {
   const [isMounted, setIsMounted] = useState(false)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
   const [currentImageIndices, setCurrentImageIndices] = useState<Record<number, number>>({})
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   useEffect(() => {
     setIsMounted(true)
     async function load() {
       try {
-        const [data, userLikedPosts] = await Promise.all([
+        const [data, userLikedPosts, currentUser] = await Promise.all([
           fetchPosts(),
-          getUserLikedPosts()
+          getUserLikedPosts(),
+          fetchCurrentUserProfile()
         ])
         
         setPosts(data)
+        setCurrentUserId(currentUser?.id || null)
         
         // Initialize post likes and image indices
         const initialLikes: Record<number, number> = {};
@@ -286,6 +292,18 @@ export default function FeedView() {
     });
   }, [posts])
 
+  const handleAvatarClick = useCallback((userId: string) => {
+    if (!isMounted) return;
+    
+    // If clicking on own avatar, go to profile view (main profile page)
+    if (currentUserId && userId === currentUserId) {
+      router.push("/profile")
+    } else {
+      // If clicking on other user's avatar, go to their profile page
+      router.push(`/profile/${userId}`)
+    }
+  }, [isMounted, router, currentUserId])
+
   return (
     <div className="flex-1 overflow-auto pb-20">
       <div className="container max-w-md mx-auto py-4 space-y-4">
@@ -298,6 +316,7 @@ export default function FeedView() {
             onPostClick={handlePostClick}
             onImageNavigation={handleImageNavigation}
             onImageError={handleImageError}
+            onAvatarClick={handleAvatarClick}
             votedPosts={votedPosts}
             postLikes={postLikes}
             currentImageIndices={currentImageIndices}

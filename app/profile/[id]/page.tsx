@@ -7,17 +7,22 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { fetchProfileById, type Profile } from "@/lib/db/profiles"
+import { fetchProfileById, fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
 import { fetchPostsByUser } from "@/lib/db/posts"
+import { toggleFollow, isFollowing, getUserStats, type UserStats } from "@/lib/db/follows"
 import type { Post } from "@/lib/data/models/post"
+import { toast } from "@/components/ui/use-toast"
 
 export default function OtherUserView({ params }: { params: { id: string } }) {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [userPosts, setUserPosts] = useState<Post[]>([])
+  const [userStats, setUserStats] = useState<UserStats>({ followers_count: 0, following_count: 0, posts_count: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
-  const [isFollowing, setIsFollowing] = useState(false)
+  const [isFollowingUser, setIsFollowingUser] = useState(false)
+  const [isOwnProfile, setIsOwnProfile] = useState(false)
+  const [isFollowLoading, setIsFollowLoading] = useState(false)
 
   // Unwrap params for Next.js 15+
   const unwrappedParams = use(params as any) as { id: string }
@@ -27,24 +32,59 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
       try {
         setIsLoading(true)
         
-        // Load user profile and posts
-        const [profileData, postsData] = await Promise.all([
-          fetchProfileById(unwrappedParams.id),
-          fetchPostsByUser(unwrappedParams.id)
+        // Load current user to check if viewing own profile
+        const [currentUser, profileData] = await Promise.all([
+          fetchCurrentUserProfile(),
+          fetchProfileById(unwrappedParams.id)
         ])
         
+        if (!profileData) {
+          toast({
+            title: "User not found",
+            description: "The user profile you're looking for doesn't exist.",
+            variant: "destructive"
+          })
+          router.push("/")
+          return
+        }
+        
         setProfile(profileData)
+        
+        // Check if viewing own profile
+        const isOwn = currentUser?.id === unwrappedParams.id
+        setIsOwnProfile(isOwn)
+        
+        // If viewing own profile, redirect to main profile page
+        if (isOwn) {
+          router.push("/profile")
+          return
+        }
+        
+        // Load user posts, stats, and follow status in parallel
+        const [postsData, statsData, followStatus] = await Promise.all([
+          fetchPostsByUser(unwrappedParams.id),
+          getUserStats(unwrappedParams.id),
+          isFollowing(unwrappedParams.id)
+        ])
+        
         setUserPosts(postsData)
+        setUserStats(statsData)
+        setIsFollowingUser(followStatus)
         
       } catch (error) {
         console.error('Error loading profile data:', error)
+        toast({
+          title: "Error",
+          description: "Failed to load profile data.",
+          variant: "destructive"
+        })
       } finally {
         setIsLoading(false)
       }
     }
 
     loadProfileData()
-  }, [unwrappedParams.id])
+  }, [unwrappedParams.id, router])
 
   const handlePostClick = (postId: number) => {
     router.push(`/post/${postId}`)
@@ -54,8 +94,38 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
     router.push(`/message/${unwrappedParams.id}`)
   }
 
-  const handleFollowClick = () => {
-    setIsFollowing(!isFollowing)
+  const handleFollowClick = async () => {
+    if (isFollowLoading || !profile) return
+    
+    try {
+      setIsFollowLoading(true)
+      const result = await toggleFollow(profile.id)
+      setIsFollowingUser(result.isFollowing)
+      
+      // Update follower count
+      setUserStats(prev => ({
+        ...prev,
+        followers_count: result.isFollowing 
+          ? prev.followers_count + 1 
+          : prev.followers_count - 1
+      }))
+      
+      toast({
+        title: result.isFollowing ? "Following" : "Unfollowed",
+        description: result.isFollowing 
+          ? `You are now following ${profile.username || profile.full_name}` 
+          : `You unfollowed ${profile.username || profile.full_name}`,
+      })
+    } catch (error) {
+      console.error('Error toggling follow:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update follow status. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsFollowLoading(false)
+    }
   }
 
   const handleImageError = (id: string) => {
@@ -91,6 +161,18 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
     )
   }
 
+  if (!profile) {
+    return (
+      <div className="flex-1 overflow-auto pb-20">
+        <div className="container max-w-md mx-auto py-4 px-4 text-center">
+          <h2 className="text-xl font-bold mb-4">User Not Found</h2>
+          <p className="text-muted-foreground mb-4">The user profile you're looking for doesn't exist.</p>
+          <Button onClick={() => router.push("/")}>Go Home</Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 overflow-auto pb-20">
       <div className="container max-w-md mx-auto py-4 px-4">
@@ -98,12 +180,12 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => router.push("/")}
+            onClick={() => router.back()}
             className="hover:bg-accent"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h1 className="text-2xl font-bold">PetalPath</h1>
+          <h1 className="text-2xl font-bold">@{profile.username}</h1>
         </div>
         <div className="flex items-center gap-4 mb-6">
           <div className="flex-1 flex items-center gap-4">
@@ -132,15 +214,15 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
         <div className="flex justify-between mb-6">
           <div className="flex gap-4">
             <div className="text-center">
-              <div className="font-bold">{userPosts.length}</div>
+              <div className="font-bold">{userStats.posts_count}</div>
               <div className="text-xs text-muted-foreground">Posts</div>
             </div>
             <div className="text-center">
-              <div className="font-bold">142</div>
+              <div className="font-bold">{userStats.followers_count}</div>
               <div className="text-xs text-muted-foreground">Followers</div>
             </div>
             <div className="text-center">
-              <div className="font-bold">98</div>
+              <div className="font-bold">{userStats.following_count}</div>
               <div className="text-xs text-muted-foreground">Following</div>
             </div>
           </div>
@@ -148,12 +230,13 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
 
         <div className="flex gap-2 mb-6">
           <Button 
-            variant={isFollowing ? "outline" : "default"}
+            variant={isFollowingUser ? "outline" : "default"}
             className="flex-1 flex items-center justify-center gap-2"
             onClick={handleFollowClick}
+            disabled={isFollowLoading}
           >
             <UserPlus className="h-4 w-4" />
-            {isFollowing ? "Following" : "Follow"}
+            {isFollowLoading ? "Loading..." : (isFollowingUser ? "Following" : "Follow")}
           </Button>
           <Button 
             variant="outline" 

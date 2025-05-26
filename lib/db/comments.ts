@@ -44,6 +44,24 @@ export async function fetchCommentsByPost(postId: number): Promise<Comment[]> {
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
 
+  // For any missing profiles, try to fetch them individually (this will create them if needed)
+  const missingUserIds = userIds.filter(id => !profileMap.has(id))
+  if (missingUserIds.length > 0) {
+    console.log(`Found ${missingUserIds.length} users without profiles in comments for post ${postId}, attempting to resolve`)
+    const { fetchProfileById } = await import('./profiles')
+    
+    for (const userId of missingUserIds) {
+      try {
+        const profile = await fetchProfileById(userId)
+        if (profile) {
+          profileMap.set(userId, profile)
+        }
+      } catch (error) {
+        console.error(`Failed to resolve profile for user ${userId}:`, error)
+      }
+    }
+  }
+
   return (data ?? []).map(row => mapRowToComment(row, profileMap))
 }
 
@@ -64,12 +82,9 @@ export async function createComment(postId: number, content: string): Promise<Co
 
   if (error) throw new Error(error.message)
 
-  // Get user profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, username, full_name, avatar_url')
-    .eq('id', user.id)
-    .single()
+  // Get user profile using the improved fetchProfileById function
+  const { fetchProfileById } = await import('./profiles')
+  const profile = await fetchProfileById(user.id)
 
   const profileMap = new Map(profile ? [[profile.id, profile]] : [])
   return mapRowToComment(data, profileMap)
@@ -101,13 +116,18 @@ export async function deleteComment(commentId: number): Promise<void> {
 
 function mapRowToComment(row: any, profileMap: Map<string, any>): Comment {
   const profile = profileMap.get(row.user_id)
+  
+  // Provide better fallbacks for missing profile data
+  const fallbackUsername = profile?.username || `user_${row.user_id?.slice(-8) || 'unknown'}`
+  const fallbackName = profile?.full_name || profile?.username || fallbackUsername
+  
   return {
     id: row.id,
     postId: row.post_id,
     user: {
       id: row.user_id,
-      name: profile?.full_name || '',
-      username: profile?.username || '',
+      name: fallbackName,
+      username: fallbackUsername,
       avatar: profile?.avatar_url || '',
     },
     text: row.content,

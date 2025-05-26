@@ -114,6 +114,16 @@ export default function PostDetail({ params }: { params: { id: string } }) {
     }
   }, [postId])
 
+  const handleAvatarClick = (userId: string) => {
+    // If clicking on own avatar, go to profile view (main profile page)
+    if (currentUser && userId === currentUser.id) {
+      router.push("/profile")
+    } else {
+      // If clicking on other user's avatar, go to their profile page
+      router.push(`/profile/${userId}`)
+    }
+  }
+
   const handleLike = async () => {
     if (!post || !currentUser) return
 
@@ -339,11 +349,17 @@ export default function PostDetail({ params }: { params: { id: string } }) {
       <div className="flex-1 pb-16">
         <div className="container max-w-md mx-auto">
           <div className="p-4 pb-0 flex items-center space-x-2">
-            <Avatar>
+            <Avatar 
+              className="cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => handleAvatarClick(post.user.id.toString())}
+            >
               <AvatarImage src={post.user.avatar || "/placeholder.svg"} />
               <AvatarFallback>{post.user.name.charAt(0)}</AvatarFallback>
             </Avatar>
-            <div>
+            <div 
+              className="cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => handleAvatarClick(post.user.id.toString())}
+            >
               <div className="font-semibold">{post.user.username}</div>
             </div>
           </div>
@@ -490,13 +506,21 @@ export default function PostDetail({ params }: { params: { id: string } }) {
             {/* 评论列表 */}
             {comments.map((comment) => (
               <div key={comment.id} className="flex items-start gap-3 py-3 border-b">
-                <Avatar className="w-8 h-8">
+                <Avatar 
+                  className="w-8 h-8 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => handleAvatarClick(comment.user.id)}
+                >
                   <AvatarImage src={comment.user.avatar || "/placeholder.svg"} />
                   <AvatarFallback>{comment.user.name.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <div className="font-semibold text-sm">{comment.user.username}</div>
+                    <div 
+                      className="font-semibold text-sm cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => handleAvatarClick(comment.user.id)}
+                    >
+                      {comment.user.username}
+                    </div>
                     <div className="flex items-center gap-2">
                       <div className="text-xs text-muted-foreground">
                         {new Date(comment.createdAt).toLocaleDateString()}
