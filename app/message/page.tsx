@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { getCurrentUser } from "@/lib/data"
+// Removed getCurrentUser import - using real auth instead
 
 export default function MessagePage() {
   const router = useRouter()
-  const currentUser = getCurrentUser()
+  // TODO: Replace with real user data from auth
   const [searchQuery, setSearchQuery] = useState("")
 
   // Mock contacts data

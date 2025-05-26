@@ -6,11 +6,11 @@ import { ArrowLeft, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { getCurrentUser } from "@/lib/data"
+// Removed getCurrentUser import - using real auth instead
 
 export default function MessagePage({ params }: { params: { id: string } }) {
   const router = useRouter()
-  const currentUser = getCurrentUser()
+  // TODO: Replace with real user data from auth
   const [message, setMessage] = useState("")
 
   // Mock conversation data
@@ -84,11 +84,11 @@ export default function MessagePage({ params }: { params: { id: string } }) {
           {conversation.messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex ${msg.senderId === currentUser.id ? "justify-end" : "justify-start"}`}
+              className={`flex ${msg.senderId === 1 ? "justify-end" : "justify-start"}`}
             >
               <div
                 className={`max-w-[70%] rounded-lg p-3 ${
-                  msg.senderId === currentUser.id
+                  msg.senderId === 1
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted"
                 }`}

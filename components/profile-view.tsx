@@ -8,16 +8,17 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getSavedLocations } from "@/lib/data"
 import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
 import { fetchPostsByUser } from "@/lib/db/posts"
+import { fetchUserVisitedLocations } from "@/lib/db/user-locations"
 import type { Post } from "@/lib/data/models/post"
+import type { ExtendedLocation } from "@/lib/data/models/location"
 
 export default function ProfileView() {
   const router = useRouter()
-  const savedLocations = getSavedLocations()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [userPosts, setUserPosts] = useState<Post[]>([])
+  const [visitedLocations, setVisitedLocations] = useState<ExtendedLocation[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
 
@@ -30,10 +31,14 @@ export default function ProfileView() {
         const userProfile = await fetchCurrentUserProfile()
         setProfile(userProfile)
         
-        // Load user's posts
+        // Load user's posts and visited locations
         if (userProfile) {
-          const posts = await fetchPostsByUser(userProfile.id)
+          const [posts, locations] = await Promise.all([
+            fetchPostsByUser(userProfile.id),
+            fetchUserVisitedLocations(userProfile.id)
+          ])
           setUserPosts(posts)
+          setVisitedLocations(locations)
         }
         
       } catch (error) {
@@ -193,31 +198,39 @@ export default function ProfileView() {
           </TabsContent>
           <TabsContent value="locations" className="mt-4">
             <div className="space-y-4">
-              {savedLocations.map((location) => (
-                <div
-                  key={location.id}
-                  className="flex items-start gap-3 border-b pb-4 cursor-pointer hover:bg-accent/50 transition-colors p-2 rounded-md"
-                  onClick={() => handleLocationClick(location.id)}
-                >
-                  <div className="w-16 h-16 bg-muted rounded-md overflow-hidden">
-                    <img
-                      src={location.imageUrl || `/placeholder.svg?height=64&width=64&text=L${location.id}`}
-                      alt={location.name}
-                      className="w-full h-full object-cover"
-                      onError={() => handleImageError(`location-${location.id}`)}
-                    />
-                  </div>
-                  <div>
-                    <div className="font-semibold">{location.name}</div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      <Badge variant="secondary" className="text-xs">
-                        {location.category}
-                      </Badge>
+              {visitedLocations.length > 0 ? (
+                visitedLocations.map((location: ExtendedLocation) => (
+                  <div
+                    key={location.id}
+                    className="flex items-start gap-3 border-b pb-4 cursor-pointer hover:bg-accent/50 transition-colors p-2 rounded-md"
+                    onClick={() => handleLocationClick(location.id)}
+                  >
+                    <div className="w-16 h-16 bg-muted rounded-md overflow-hidden">
+                      <img
+                        src={location.imageUrl || `/placeholder.svg?height=64&width=64&text=L${location.id}`}
+                        alt={location.name}
+                        className="w-full h-full object-cover"
+                        onError={() => handleImageError(`location-${location.id}`)}
+                      />
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1">{location.visitCount} visits</div>
+                    <div>
+                      <div className="font-semibold">{location.name}</div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        <Badge variant="secondary" className="text-xs">
+                          {location.category}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">{location.visitCount} visits</div>
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No locations visited yet</p>
+                  <p className="text-xs">Start posting to see your visited locations here!</p>
                 </div>
-              ))}
+              )}
             </div>
           </TabsContent>
         </Tabs>

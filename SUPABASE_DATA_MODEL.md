@@ -90,7 +90,24 @@ create policy "Users can manage own"      on public.comments for all    using ( 
 
 ---
 
-## 5. Messaging (future)
+## 5. `post_likes` table
+```sql
+create table public.post_likes (
+  id bigint generated always as identity primary key,
+  post_id bigint references public.posts(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
+  created_at timestamptz default now(),
+  unique(post_id, user_id)
+);
+
+alter table public.post_likes enable row level security;
+create policy "Users can read likes"      on public.post_likes for select using ( true );
+create policy "Users can manage own"      on public.post_likes for all    using ( auth.uid() = user_id );
+```
+
+---
+
+## 6. Messaging (future)
 ```
 create table public.messages (
   id bigint generated always as identity primary key,
@@ -107,12 +124,12 @@ create policy "Only participants access" on public.messages
 
 ---
 
-## 6. Indexes & performance
+## 7. Indexes & performance
 Add indexes as usage patterns emerge (e.g. `create index on posts (location_id)`).
 
 ---
 
-## 7. Storage bucket CORS
+## 8. Storage bucket CORS
 For local dev, enable CORS: `http://localhost:3002` and production domains.
 
 ---

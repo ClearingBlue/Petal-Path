@@ -24,6 +24,9 @@ import { filterLocationsByRadius, fetchLocations } from "@/lib/db/locations"
 import type { ExtendedLocation as Location } from "@/lib/data/models/location"
 import { createMarkerIcon, createUserLocationIcon } from "@/lib/leaflet-utils"
 import dynamic from "next/dynamic"
+import { fetchUserSavedLocations } from '@/lib/db/user-locations'
+import { fetchTopPostsByLocation } from '@/lib/db/posts'
+import type { Post } from "@/lib/data/models/post"
 
 // Define a type for the map content props
 interface MapContentProps {
@@ -132,12 +135,19 @@ const mapStyles = `
 
 export default function MapView() {
   const router = useRouter()
-  const [selectedLocation, setSelectedLocation] = useState<number | null>(null)
-  const [filterDistance, setFilterDistance] = useState([200])
-  const [allLocations, setAllLocations] = useState<Location[]>([])
+  const [userLocation, setUserLocation] = useState({ lat: 37.4275, lng: -122.1697 })
   const [locations, setLocations] = useState<Location[]>([])
+  const [allLocations, setAllLocations] = useState<Location[]>([])
+  const [selectedLocation, setSelectedLocation] = useState<number | null>(null)
+  const [topPosts, setTopPosts] = useState<Post[]>([])
+  const [filterDistance, setFilterDistance] = useState([200])
+  const [isLoading, setIsLoading] = useState(true)
   const [isClient, setIsClient] = useState(false)
-  const containerId = "main-map-container"
+  const [isMapReady, setIsMapReady] = useState(false)
+  const [isBrowser, setIsBrowser] = useState(false)
+  const containerId = "map-container"
+  const styleElementRef = useRef<HTMLStyleElement | null>(null);
+  const cssLinkRef = useRef<HTMLLinkElement | null>(null);
 
   // 在组件挂载时设置客户端状态
   useEffect(() => {
@@ -146,14 +156,6 @@ export default function MapView() {
 
   // Stanford University coordinates
   const stanfordCoordinates = { lat: 37.4275, lng: -122.1697 }
-
-  // Replace user location with Stanford's coordinates
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>(stanfordCoordinates)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isMapReady, setIsMapReady] = useState(false)
-  const [isBrowser, setIsBrowser] = useState(false)
-  const styleElementRef = useRef<HTMLStyleElement | null>(null);
-  const cssLinkRef = useRef<HTMLLinkElement | null>(null);
 
   // Check if we're in browser environment
   useEffect(() => {
@@ -223,6 +225,26 @@ export default function MapView() {
     const nearby = filterLocationsByRadius(allLocations, stanfordCoordinates.lat, stanfordCoordinates.lng, filterDistance[0])
     setLocations(nearby)
   }, [filterDistance, allLocations, isBrowser])
+
+  // Fetch top posts when a location is selected
+  useEffect(() => {
+    if (!selectedLocation) {
+      setTopPosts([])
+      return
+    }
+
+    async function loadTopPosts() {
+      try {
+        const posts = await fetchTopPostsByLocation(selectedLocation!, 2)
+        setTopPosts(posts)
+      } catch (error) {
+        console.error('Failed to load top posts:', error)
+        setTopPosts([])
+      }
+    }
+
+    loadTopPosts()
+  }, [selectedLocation])
 
   const handleLocationClick = (id: number) => {
     setSelectedLocation(id)
@@ -384,30 +406,26 @@ export default function MapView() {
                     </Badge>
                   </div>
                   <div className="space-y-4">
-                    <div className="flex items-start gap-3 border-b pb-4">
-                      <Avatar>
-                        <AvatarImage src={`https://source.unsplash.com/random/100x100?face`} />
-                        <AvatarFallback>JD</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-semibold">Jane Doe</div>
-                        <p className="text-sm text-muted-foreground">
-                          Perfect study spot with great lighting and quiet atmosphere!
-                        </p>
+                    {topPosts.length > 0 ? (
+                      topPosts.map((post, index) => (
+                        <div key={post.id} className={`flex items-start gap-3 ${index < topPosts.length - 1 ? 'border-b pb-4' : ''}`}>
+                          <Avatar>
+                            <AvatarImage src={post.user.avatar || "/placeholder.svg"} />
+                            <AvatarFallback>{post.user.name.charAt(0) || post.user.username.charAt(0)}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-semibold">{post.user.username}</div>
+                            <p className="text-sm text-muted-foreground">
+                              {post.description}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center text-muted-foreground py-4">
+                        <p>No posts yet for this location</p>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <Avatar>
-                        <AvatarImage src={`https://source.unsplash.com/random/100x100?person`} />
-                        <AvatarFallback>JS</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-semibold">John Smith</div>
-                        <p className="text-sm text-muted-foreground">
-                          Found a hidden corner with power outlets and fast wifi!
-                        </p>
-                      </div>
-                    </div>
+                    )}
                   </div>
                   <Button className="w-full" onClick={() => handleViewPosts(selectedLocation)}>
                     View All Posts

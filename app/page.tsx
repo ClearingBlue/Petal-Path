@@ -9,7 +9,7 @@ import MapView from "@/components/map-view"
 import FeedView from "@/components/feed-view"
 import ProfileView from "@/components/profile-view"
 import { useRouter } from "next/navigation"
-import { getUserLocation } from "@/lib/data"
+import { getUserLocation } from "@/lib/services/geolocation"
 
 export default function Home() {
   const router = useRouter()

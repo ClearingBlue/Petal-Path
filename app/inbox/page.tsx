@@ -7,11 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { getCurrentUser } from "@/lib/data"
-
 export default function InboxPage() {
   const router = useRouter()
-  const currentUser = getCurrentUser()
   const [searchQuery, setSearchQuery] = useState("")
 
   // Mock notifications data

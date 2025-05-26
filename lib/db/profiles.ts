@@ -24,6 +24,7 @@ export async function fetchCurrentUserProfile(): Promise<Profile | null> {
   
   if (!user) return null
 
+  // First try to get existing profile
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
@@ -32,8 +33,8 @@ export async function fetchCurrentUserProfile(): Promise<Profile | null> {
 
   if (error) {
     if (error.code === 'PGRST116') {
-      // Profile doesn't exist, create one
-      return await createProfile(user.id, user.email || '')
+      // Profile doesn't exist, create one using upsert to handle race conditions
+      return await ensureProfileExists(user.id, user.email || '')
     }
     throw new Error(error.message)
   }
@@ -43,6 +44,7 @@ export async function fetchCurrentUserProfile(): Promise<Profile | null> {
 
 export async function fetchProfileById(userId: string): Promise<Profile | null> {
   const supabase = createSupabaseClient()
+  
   const { data, error } = await supabase
     .from('profiles')
     .select('*')
@@ -50,10 +52,95 @@ export async function fetchProfileById(userId: string): Promise<Profile | null> 
     .single()
 
   if (error) {
-    if (error.code === 'PGRST116') return null
-    throw new Error(error.message)
+    console.error('Error fetching profile:', error)
+    return null
   }
 
+  return data
+}
+
+export async function ensureProfileExists(userId: string, email: string): Promise<Profile> {
+  const supabase = createSupabaseClient()
+  
+  // First try to get the profile again (in case it was created between calls)
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single()
+  
+  if (existingProfile) {
+    return existingProfile
+  }
+  
+  // Generate a PetalPath-themed default username
+  const emailPrefix = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '')
+  const petalWords = ['petal', 'bloom', 'garden', 'flower', 'blossom', 'leaf', 'stem', 'rose', 'lily', 'daisy']
+  const randomPetal = petalWords[Math.floor(Math.random() * petalWords.length)]
+  const randomNum = Math.floor(Math.random() * 999) + 1
+  
+  // Try different username combinations until we find an available one
+  let username = `${randomPetal}${randomNum}`
+  let attempts = 0
+  const maxAttempts = 10
+  
+  while (attempts < maxAttempts) {
+    const isAvailable = await checkUsernameAvailable(username)
+    if (isAvailable) break
+    
+    // Try with email prefix + petal word
+    if (attempts === 1) {
+      username = `${emailPrefix}_${randomPetal}`
+    }
+    // Try with different random number
+    else if (attempts < 5) {
+      username = `${randomPetal}${Math.floor(Math.random() * 9999) + 1}`
+    }
+    // Try with different petal word
+    else {
+      const newPetal = petalWords[Math.floor(Math.random() * petalWords.length)]
+      username = `${newPetal}${Math.floor(Math.random() * 9999) + 1}`
+    }
+    
+    attempts++
+  }
+  
+  // Fallback to UUID-based username if all attempts fail
+  if (attempts >= maxAttempts) {
+    username = `petal_${userId.slice(-8)}`
+  }
+  
+  // Use upsert to handle race conditions
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert({
+      id: userId,
+      username: username,
+      full_name: null,
+      avatar_url: null,
+      bio: null,
+      location: null
+    }, {
+      onConflict: 'id'
+    })
+    .select()
+    .single()
+
+  if (error) {
+    // If there's still a conflict, try to fetch the existing profile
+    if (error.code === '23505') { // unique constraint violation
+      const { data: conflictProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+      
+      if (conflictProfile) {
+        return conflictProfile
+      }
+    }
+    throw new Error(error.message)
+  }
   return data
 }
 

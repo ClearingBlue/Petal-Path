@@ -11,11 +11,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { fetchPostsByLocation } from '@/lib/db/posts'
-import type { ExtendedLocation } from "@/lib/data/models/location"
-import type { Post } from "@/lib/data/models/post"
+import { fetchPostsByLocation, getUserLikedPosts, togglePostLike } from '@/lib/db/posts'
+import { fetchLocationById } from '@/lib/db/locations'
+import type { ExtendedLocation } from '@/lib/data/models/location'
+import type { Post } from '@/lib/data/models/post'
 import dynamic from "next/dynamic"
-import { fetchLocationById } from "@/lib/db/locations"
 
 // Dynamically load map component to avoid SSR issues
 const LocationMapWithNoSSR = dynamic(() => import("@/components/location-map"), {
@@ -45,8 +45,12 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
     const fetchData = async () => {
       setIsLoading(true)
       try {
-        // Get location data
-        const locationData = await fetchLocationById(locationId)
+        // Get location data and user's liked posts in parallel
+        const [locationData, userLikedPosts] = await Promise.all([
+          fetchLocationById(locationId),
+          getUserLikedPosts()
+        ])
+        
         if (!locationData) {
           return
         }
@@ -56,12 +60,20 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
         const locationPosts = await fetchPostsByLocation(locationId)
         setPosts(locationPosts)
         
-        // Initialize post likes
+        // Initialize post likes and voted posts
         const initialLikes: Record<number, number> = {}
+        const initialVotes: Record<number, "up" | "down" | null> = {}
+        
         locationPosts.forEach(post => {
           initialLikes[post.id] = post.likes
+          // Set initial vote state based on user's liked posts
+          if (userLikedPosts.has(post.id)) {
+            initialVotes[post.id] = 'up'
+          }
         })
+        
         setPostLikes(initialLikes)
+        setVotedPosts(initialVotes)
       } catch (error) {
         console.error("Error fetching location data:", error)
       } finally {
@@ -91,54 +103,28 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
     router.push(`/post/${postId}#comments`)
   }
 
-  const handleVote = (postId: number, direction: "up" | "down") => {
-    // Get current vote status
-    const currentVote = votedPosts[postId];
-    
-    // Case: canceling a vote
-    if (currentVote === direction) {
-      // Remove current vote
-      setVotedPosts(prev => {
-        const newState = { ...prev };
-        delete newState[postId];
-        return newState;
-      });
-      
-      // Update like count
-      setPostLikes(prev => ({
-        ...prev,
-        [postId]: prev[postId] + (direction === "up" ? -1 : 1) // Subtract 1 if canceling upvote, add 1 if canceling downvote
-      }));
-    } 
-    // Case: changing vote or voting for the first time
-    else {
-      // Update vote status
+  const handleVote = async (postId: number, direction: "up" | "down") => {
+    if (!isMounted) return
+
+    if (direction !== 'up') {
+      // Down vote currently acts as a no-op for persistence.
+      return
+    }
+
+    try {
+      const { isLiked, likeCount } = await togglePostLike(postId)
+
+      // Update UI state
       setVotedPosts(prev => ({
         ...prev,
-        [postId]: direction
-      }));
-      
-      // Calculate and update like count
-      setPostLikes(prev => {
-        const currentLikes = prev[postId] || 0;
-        let newLikes = currentLikes;
-        
-        // 1. If there was a previous vote, undo it first
-        if (currentVote === "up") {
-          newLikes -= 1; // Undo upvote
-        } else if (currentVote === "down") {
-          newLikes += 1; // Undo downvote
-        }
-        
-        // 2. Apply the new vote
-        if (direction === "up") {
-          newLikes += 1; // Apply upvote
-        } else {
-          newLikes -= 1; // Apply downvote
-        }
-        
-        return { ...prev, [postId]: newLikes };
-      });
+        [postId]: isLiked ? 'up' : null,
+      }))
+      setPostLikes(prev => ({
+        ...prev,
+        [postId]: likeCount,
+      }))
+    } catch (err) {
+      console.error('Failed to toggle like', err)
     }
   }
 
@@ -165,7 +151,7 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
             <h1 className="text-white font-bold text-xl">{location.name}</h1>
             <div className="flex flex-wrap gap-1 mt-1">
-              {location.tags && Array.isArray(location.tags) && location.tags.map((tag) => (
+              {location.tags && Array.isArray(location.tags) && location.tags.map((tag: string) => (
                 <Badge key={tag} variant="secondary" className="bg-black/30 text-white">
                   {tag}
                 </Badge>
@@ -218,7 +204,7 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
                         </div>
                         {post.description && <p className="text-sm text-muted-foreground">{post.description}</p>}
                         <div className="flex flex-wrap gap-1">
-                          {post.tags && Array.isArray(post.tags) && post.tags.map((tag) => (
+                          {post.tags && Array.isArray(post.tags) && post.tags.map((tag: string) => (
                             <Badge key={tag} variant="secondary">
                               {tag}
                             </Badge>

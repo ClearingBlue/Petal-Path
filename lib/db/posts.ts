@@ -18,7 +18,6 @@ export async function fetchPosts(): Promise<Post[]> {
       title,
       description,
       tags,
-      likes,
       created_at,
       user_id,
       locations(id,name),
@@ -39,11 +38,16 @@ export async function fetchPosts(): Promise<Post[]> {
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
   
-  return mapRowsToPosts(data ?? [], profileMap)
+  // Get like counts for all posts
+  const postIds = data?.map(post => post.id) || []
+  const likeCounts = await getLikeCountsForPosts(postIds)
+  
+  return mapRowsToPosts(data ?? [], profileMap, likeCounts)
 }
 
 export async function fetchPostsByUser(userId: string): Promise<Post[]> {
   const supabase = createSupabaseClient()
+  
   const { data, error } = await supabase
     .from('posts')
     .select(`
@@ -51,7 +55,6 @@ export async function fetchPostsByUser(userId: string): Promise<Post[]> {
       title,
       description,
       tags,
-      likes,
       created_at,
       user_id,
       locations(id,name),
@@ -59,17 +62,24 @@ export async function fetchPostsByUser(userId: string): Promise<Post[]> {
     `)
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
+
   if (error) throw new Error(error.message)
-  
+
   // Get profile for this user
   const { data: profile } = await supabase
     .from('profiles')
     .select('id, username, full_name, avatar_url')
     .eq('id', userId)
     .single()
-  
+
+  // Create a map of user profiles
   const profileMap = new Map(profile ? [[profile.id, profile]] : [])
-  return mapRowsToPosts(data ?? [], profileMap)
+
+  // Get like counts for all posts
+  const postIds = data?.map(post => post.id) || []
+  const likeCounts = await getLikeCountsForPosts(postIds)
+
+  return mapRowsToPosts(data ?? [], profileMap, likeCounts)
 }
 
 export async function fetchPostsByLocation(locationId: number): Promise<Post[]> {
@@ -81,7 +91,6 @@ export async function fetchPostsByLocation(locationId: number): Promise<Post[]> 
       title,
       description,
       tags,
-      likes,
       created_at,
       user_id,
       locations(id,name),
@@ -103,7 +112,56 @@ export async function fetchPostsByLocation(locationId: number): Promise<Post[]> 
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
   
-  return mapRowsToPosts(data ?? [], profileMap)
+  // Get like counts for all posts
+  const postIds = data?.map(post => post.id) || []
+  const likeCounts = await getLikeCountsForPosts(postIds)
+  
+  return mapRowsToPosts(data ?? [], profileMap, likeCounts)
+}
+
+export async function fetchTopPostsByLocation(locationId: number, limit: number = 2): Promise<Post[]> {
+  const supabase = createSupabaseClient()
+  
+  // First get all posts for this location with their like counts
+  const { data, error } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      title,
+      description,
+      tags,
+      created_at,
+      user_id,
+      locations(id,name),
+      post_images(url)
+    `)
+    .eq('location_id', locationId)
+  
+  if (error) throw new Error(error.message)
+  
+  // Get like counts for all posts
+  const postIds = data?.map(post => post.id) || []
+  const likeCounts = await getLikeCountsForPosts(postIds)
+  
+  // Sort by like count and take top posts
+  const postsWithLikes = (data ?? []).map(post => ({
+    ...post,
+    likeCount: likeCounts.get(post.id) || 0
+  })).sort((a, b) => b.likeCount - a.likeCount).slice(0, limit)
+  
+  // Get unique user IDs
+  const userIds = [...new Set(postsWithLikes.map(post => post.user_id).filter(Boolean))]
+  
+  // Fetch profiles for all users
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, username, full_name, avatar_url')
+    .in('id', userIds)
+  
+  // Create a map of user profiles
+  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
+  
+  return mapRowsToPosts(postsWithLikes, profileMap, likeCounts)
 }
 
 export async function fetchPostById(id: number): Promise<Post | null> {
@@ -115,7 +173,6 @@ export async function fetchPostById(id: number): Promise<Post | null> {
       title,
       description,
       tags,
-      likes,
       created_at,
       user_id,
       locations(id,name),
@@ -138,7 +195,57 @@ export async function fetchPostById(id: number): Promise<Post | null> {
     .single()
   
   const profileMap = new Map(profile ? [[profile.id, profile]] : [])
-  return mapRowToPost(data, profileMap)
+  
+  // Get like count for this post
+  const likeCounts = await getLikeCountsForPosts([id])
+  
+  return mapRowToPost(data, profileMap, likeCounts)
+}
+
+// Helper function to get like counts for multiple posts
+async function getLikeCountsForPosts(postIds: number[]): Promise<Map<number, number>> {
+  if (postIds.length === 0) return new Map()
+  
+  const supabase = createSupabaseClient()
+  const { data, error } = await supabase
+    .from('post_likes')
+    .select('post_id')
+    .in('post_id', postIds)
+  
+  if (error) {
+    console.error('Error fetching like counts:', error)
+    return new Map()
+  }
+  
+  // Count likes per post
+  const likeCounts = new Map<number, number>()
+  postIds.forEach(id => likeCounts.set(id, 0)) // Initialize all to 0
+  
+  data?.forEach(like => {
+    const currentCount = likeCounts.get(like.post_id) || 0
+    likeCounts.set(like.post_id, currentCount + 1)
+  })
+  
+  return likeCounts
+}
+
+// Helper function to get user's liked posts
+export async function getUserLikedPosts(): Promise<Set<number>> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) return new Set()
+
+  const { data, error } = await supabase
+    .from('post_likes')
+    .select('post_id')
+    .eq('user_id', user.id)
+
+  if (error) {
+    console.error('Error fetching user liked posts:', error)
+    return new Set()
+  }
+
+  return new Set(data?.map(like => like.post_id) || [])
 }
 
 export async function createPost(payload: NewPostPayload) {
@@ -186,11 +293,11 @@ export async function createPost(payload: NewPostPayload) {
 
 // ---------------------------------------------------------------------------
 
-function mapRowsToPosts(rows: any[], profileMap: Map<string, any>): Post[] {
-  return rows.map(row => mapRowToPost(row, profileMap))
+function mapRowsToPosts(rows: any[], profileMap: Map<string, any>, likeCounts: Map<number, number>): Post[] {
+  return rows.map(row => mapRowToPost(row, profileMap, likeCounts))
 }
 
-function mapRowToPost(row: any, profileMap: Map<string, any>): Post {
+function mapRowToPost(row: any, profileMap: Map<string, any>, likeCounts: Map<number, number>): Post {
   const profile = profileMap.get(row.user_id)
   return {
     id: row.id,
@@ -206,8 +313,98 @@ function mapRowToPost(row: any, profileMap: Map<string, any>): Post {
     title: row.title ?? '',
     description: row.description ?? '',
     tags: row.tags ?? [],
-    likes: row.likes ?? 0,
+    likes: likeCounts.get(row.id) || 0,
     comments: 0,
     createdAt: row.created_at ?? '',
   }
+}
+
+export async function deletePost(postId: number): Promise<boolean> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) throw new Error('Not authenticated')
+
+  // Check if user owns the post
+  const { data: post } = await supabase
+    .from('posts')
+    .select('user_id')
+    .eq('id', postId)
+    .single()
+
+  if (!post || post.user_id !== user.id) {
+    throw new Error('Not authorized to delete this post')
+  }
+
+  // Delete post images first (due to foreign key constraint)
+  await supabase
+    .from('post_images')
+    .delete()
+    .eq('post_id', postId)
+
+  // Delete the post
+  const { error } = await supabase
+    .from('posts')
+    .delete()
+    .eq('id', postId)
+
+  if (error) throw new Error(error.message)
+  return true
+}
+
+export async function togglePostLike(postId: number): Promise<{ isLiked: boolean; likeCount: number }> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) throw new Error('Not authenticated')
+
+  // Check if user already liked this post
+  const { data: existingLike } = await supabase
+    .from('post_likes')
+    .select('id')
+    .eq('post_id', postId)
+    .eq('user_id', user.id)
+    .single()
+
+  let isLiked: boolean
+
+  if (existingLike) {
+    // Unlike the post
+    await supabase
+      .from('post_likes')
+      .delete()
+      .eq('post_id', postId)
+      .eq('user_id', user.id)
+    isLiked = false
+  } else {
+    // Like the post
+    await supabase
+      .from('post_likes')
+      .insert({
+        post_id: postId,
+        user_id: user.id
+      })
+    isLiked = true
+  }
+
+  // Get updated like count
+  const { count } = await supabase
+    .from('post_likes')
+    .select('*', { count: 'exact', head: true })
+    .eq('post_id', postId)
+
+  return { isLiked, likeCount: count || 0 }
+}
+
+export async function checkUserLikedPost(postId: number): Promise<boolean> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) return false
+
+  const { data } = await supabase
+    .from('post_likes')
+    .select('id')
+    .eq('post_id', postId)
+    .eq('user_id', user.id)
+    .single()
+
+  return !!data
 } 

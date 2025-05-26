@@ -7,11 +7,14 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getCurrentUser } from "@/lib/data"
+import { fetchProfileById, type Profile } from "@/lib/db/profiles"
+import { fetchPostsByUser } from "@/lib/db/posts"
+import type { Post } from "@/lib/data/models/post"
 
 export default function OtherUserView({ params }: { params: { id: string } }) {
   const router = useRouter()
-  const currentUser = getCurrentUser()
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [userPosts, setUserPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
   const [isFollowing, setIsFollowing] = useState(false)
@@ -19,51 +22,36 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
   // Unwrap params for Next.js 15+
   const unwrappedParams = use(params as any) as { id: string }
 
-  // Mock user data - in a real app, this would be fetched based on the ID
-  const user = {
-    id: parseInt(unwrappedParams.id),
-    name: "Sarah Chen",
-    username: "sarahchen",
-    avatar: "https://placekitten.com/100/100",
-    bio: "Stanford '25 | Computer Science | Photography enthusiast | Always exploring campus",
-    location: "Stanford, CA",
-    posts: [
-      {
-        id: 1,
-        title: "Beautiful campus garden",
-        image: "https://placekitten.com/400/400",
-      },
-      {
-        id: 2,
-        title: "Study spot find",
-        image: "https://placekitten.com/401/401",
-      },
-      {
-        id: 3,
-        title: "Campus event",
-        image: "https://placekitten.com/402/402",
-      },
-    ],
-    stats: {
-      posts: 3,
-      followers: 142,
-      following: 98,
-    },
-  }
-
   useEffect(() => {
-    // Simulate loading
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 1000)
-  }, [])
+    async function loadProfileData() {
+      try {
+        setIsLoading(true)
+        
+        // Load user profile and posts
+        const [profileData, postsData] = await Promise.all([
+          fetchProfileById(unwrappedParams.id),
+          fetchPostsByUser(unwrappedParams.id)
+        ])
+        
+        setProfile(profileData)
+        setUserPosts(postsData)
+        
+      } catch (error) {
+        console.error('Error loading profile data:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadProfileData()
+  }, [unwrappedParams.id])
 
   const handlePostClick = (postId: number) => {
     router.push(`/post/${postId}`)
   }
 
   const handleMessageClick = () => {
-    router.push(`/message/${user.id}`)
+    router.push(`/message/${unwrappedParams.id}`)
   }
 
   const handleFollowClick = () => {
@@ -121,38 +109,38 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
           <div className="flex-1 flex items-center gap-4">
             <Avatar className="w-16 h-16 border-2 border-background">
               <AvatarImage 
-                src={user.avatar} 
+                src={profile?.avatar_url || "/placeholder.svg?height=64&width=64"} 
                 onError={() => handleImageError("avatar")}
               />
-              <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+              <AvatarFallback>{profile?.full_name?.charAt(0) || profile?.username?.charAt(0) || "U"}</AvatarFallback>
             </Avatar>
             <div>
-              <h2 className="text-xl font-bold">{user.username}</h2>
-              <p className="text-sm text-muted-foreground">{user.name}</p>
+              <h2 className="text-xl font-bold">{profile?.username || "Username not set"}</h2>
+              <p className="text-sm text-muted-foreground">{profile?.full_name || "Name not set"}</p>
             </div>
           </div>
         </div>
 
         <div className="mb-6">
-          <p className="text-sm">{user.bio}</p>
+          <p className="text-sm">{profile?.bio || "No bio available"}</p>
           <div className="flex items-center gap-1 mt-2 text-sm text-muted-foreground">
             <MapPin className="h-3 w-3" />
-            <span>{user.location}</span>
+            <span>{profile?.location || "Location not set"}</span>
           </div>
         </div>
 
         <div className="flex justify-between mb-6">
           <div className="flex gap-4">
             <div className="text-center">
-              <div className="font-bold">{user.stats.posts}</div>
+              <div className="font-bold">{userPosts.length}</div>
               <div className="text-xs text-muted-foreground">Posts</div>
             </div>
             <div className="text-center">
-              <div className="font-bold">{user.stats.followers}</div>
+              <div className="font-bold">142</div>
               <div className="text-xs text-muted-foreground">Followers</div>
             </div>
             <div className="text-center">
-              <div className="font-bold">{user.stats.following}</div>
+              <div className="font-bold">98</div>
               <div className="text-xs text-muted-foreground">Following</div>
             </div>
           </div>
@@ -178,18 +166,23 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
         </div>
 
         <div className="grid grid-cols-3 gap-1">
-          {user.posts.map((post) => (
+          {userPosts.map((post) => (
             <div
               key={post.id}
               className="aspect-square bg-muted cursor-pointer group relative overflow-hidden"
               onClick={() => handlePostClick(post.id)}
             >
               <img 
-                src={post.image} 
+                src={post.images[0] || "/placeholder.svg"} 
                 alt={post.title} 
                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
                 onError={() => handleImageError(`post-${post.id}`)}
               />
+              {post.images.length > 1 && (
+                <div className="absolute top-2 right-2 bg-background/80 rounded-full px-2 py-1 text-xs">
+                  +{post.images.length - 1}
+                </div>
+              )}
               {imageError[`post-${post.id}`] && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted">
                   <span className="text-xs text-muted-foreground">Image not available</span>

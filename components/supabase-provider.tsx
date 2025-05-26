@@ -2,7 +2,7 @@
 
 import { ReactNode, useState } from 'react'
 import { SessionContextProvider, Session } from '@supabase/auth-helpers-react'
-import { createBrowserSupabaseClient } from '@supabase/auth-helpers-nextjs'
+import { createSupabaseClient } from '@/lib/supabase' // shared client factory
 
 interface SupabaseProviderProps {
   readonly children: ReactNode
@@ -10,7 +10,9 @@ interface SupabaseProviderProps {
 }
 
 export function SupabaseProvider({ children, initialSession }: SupabaseProviderProps) {
-  const [supabaseClient] = useState(() => createBrowserSupabaseClient())
+  // Use the unified client factory so that we have a single place that
+  // manages how the Supabase client is instantiated for both browser and server
+  const [supabaseClient] = useState(() => createSupabaseClient())
 
   return (
     <SessionContextProvider supabaseClient={supabaseClient} initialSession={initialSession}>

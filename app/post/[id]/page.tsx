@@ -4,15 +4,16 @@ import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import React, { use } from "react"
-import { ArrowLeft, Heart, MessageCircle, Share2, Bookmark, MapPin, MoreHorizontal, Trash2, ChevronUp, ChevronDown } from "lucide-react"
+import { ArrowLeft, Heart, MessageCircle, MapPin, MoreHorizontal, Trash2, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { getPost, getCommentsByPost, getCurrentUser } from "@/lib/data"
-import { deletePost, isPostAuthor } from "@/lib/data/services/post-service"
-import type { Comment, User } from "@/lib/data"
+import { fetchPostById, deletePost, togglePostLike, checkUserLikedPost } from "@/lib/db/posts"
+import { fetchCommentsByPost, createComment, deleteComment, type Comment } from "@/lib/db/comments"
+import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
+import type { Post } from "@/lib/data/models/post"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
@@ -31,13 +32,13 @@ export default function PostDetail({ params }: { params: { id: string } }) {
   const commentsRef = useRef<HTMLDivElement>(null)
   const unwrappedParams = use(params as any) as { id: string };
   const postId = Number.parseInt(unwrappedParams.id)
-  const [post, setPost] = useState(getPost(postId))
+  const [post, setPost] = useState<Post | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [isLiked, setIsLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
-  const [voteStatus, setVoteStatus] = useState<"up" | "down" | null>(null)
   const [newComment, setNewComment] = useState("")
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [currentUser, setCurrentUser] = useState<Profile | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [commentToDelete, setCommentToDelete] = useState<number | null>(null)
   const [likedComments, setLikedComments] = useState<Set<number>>(new Set())
   const [replyTo, setReplyTo] = useState<{commentId: number, username: string} | null>(null)
@@ -47,23 +48,45 @@ export default function PostDetail({ params }: { params: { id: string } }) {
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    // Fetch comments
-    const postComments = getCommentsByPost(postId)
-    setComments(postComments)
-
-    // Set initial like count
-    if (post) {
-      setLikeCount(post.likes)
+    async function loadData() {
+      try {
+        setIsLoading(true)
+        
+        // Load post, comments, and current user in parallel
+        const [postData, commentsData, userData] = await Promise.all([
+          fetchPostById(postId),
+          fetchCommentsByPost(postId),
+          fetchCurrentUserProfile()
+        ])
+        
+        setPost(postData)
+        setComments(commentsData)
+        setCurrentUser(userData)
+        
+        // Set initial like count and check if user liked the post
+        if (postData) {
+          setLikeCount(postData.likes)
+          
+          // Check if current user has liked this post
+          if (userData) {
+            const userLiked = await checkUserLikedPost(postId)
+            setIsLiked(userLiked)
+          }
+        }
+        
+        // Check if current user is post owner
+        if (postData && userData) {
+          setIsPostOwner(postData.user.id.toString() === userData.id)
+        }
+        
+      } catch (error) {
+        console.error('Error loading post data:', error)
+      } finally {
+        setIsLoading(false)
+      }
     }
 
-    // Get current user
-    const user = getCurrentUser()
-    setCurrentUser(user)
-    
-    // Check if current user is post owner
-    if (post && user) {
-      setIsPostOwner(post.user.id === user.id)
-    }
+    loadData()
 
     // Check if URL has #comments anchor
     const checkForCommentsAnchor = () => {
@@ -89,14 +112,26 @@ export default function PostDetail({ params }: { params: { id: string } }) {
     return () => {
       if (timer) clearTimeout(timer);
     }
-  }, [postId, post])
+  }, [postId])
 
-  const handleLike = () => {
-    setIsLiked(!isLiked)
-    setLikeCount((prev) => (isLiked ? prev - 1 : prev + 1))
+  const handleLike = async () => {
+    if (!post || !currentUser) return
+
+    try {
+      const { isLiked: newIsLiked, likeCount: newLikeCount } = await togglePostLike(postId)
+      setIsLiked(newIsLiked)
+      setLikeCount(newLikeCount)
+    } catch (error) {
+      console.error('Error toggling like:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update like. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleAddComment = () => {
+  const handleAddComment = async () => {
     if ((!newComment.trim() && !replyText.trim()) || !post || !currentUser) return
 
     // 确定是否是回复评论
@@ -105,41 +140,27 @@ export default function PostDetail({ params }: { params: { id: string } }) {
     
     if (!commentText.trim()) return;
 
-    // 创建新评论对象
-    const newCommentObj: Comment = {
-      id: Date.now(), // 使用时间戳作为唯一ID
-      postId,
-      user: currentUser,
-      text: commentText,
-      createdAt: new Date().toISOString(),
-      likes: 0,
-    };
-
-    // 如果是回复，添加父评论ID
-    if (isReply) {
-      newCommentObj.parentId = replyTo.commentId;
+    try {
+      // Create comment using the service
+      const newCommentObj = await createComment(postId, commentText);
       
-      // 更新父评论的回复列表
-      setComments(prev => prev.map(comment => {
-        if (comment.id === replyTo.commentId) {
-          return {
-            ...comment,
-            replies: [...(comment.replies || []), newCommentObj.id]
-          };
-        }
-        return comment;
-      }));
-    }
-
-    // 添加新评论到列表最前面
-    setComments(prev => [newCommentObj, ...prev]);
-    
-    // 重置输入框和回复状态
-    if (isReply) {
-      setReplyText("");
-      setReplyTo(null);
-    } else {
-      setNewComment("");
+      // 添加新评论到列表最前面
+      setComments(prev => [newCommentObj, ...prev]);
+      
+      // 重置输入框和回复状态
+      if (isReply) {
+        setReplyText("");
+        setReplyTo(null);
+      } else {
+        setNewComment("");
+      }
+    } catch (error) {
+      console.error('Error creating comment:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add comment. Please try again.",
+        variant: "destructive",
+      });
     }
   }
 
@@ -187,50 +208,46 @@ export default function PostDetail({ params }: { params: { id: string } }) {
     return currentUser && comment.user.id === currentUser.id
   }
 
-  const handleVote = (direction: "up" | "down") => {
-    if (!post) return;
-    
-    // 获取当前投票状态和点赞数
-    const currentVote = voteStatus;
-    
-    // 取消投票的情况
-    if (currentVote === direction) {
-      // 取消当前投票
-      setVoteStatus(null);
-      
-      // 更新点赞数
-      setLikeCount(currentLikes => 
-        direction === "up" 
-          ? currentLikes - 1  // 取消上投，减1
-          : currentLikes + 1  // 取消下投，加1
-      );
-    } 
-    // 切换投票状态或首次投票
-    else {
-      // 更新投票状态
-      setVoteStatus(direction);
-      
-      // 计算并更新点赞数
-      setLikeCount(currentLikes => {
-        let newLikes = currentLikes;
-        
-        // 1. 如果之前有投票，先撤销
-        if (currentVote === "up") {
-          newLikes -= 1; // 撤销上投
-        } else if (currentVote === "down") {
-          newLikes += 1; // 撤销下投
-        }
-        
-        // 2. 应用新的投票
-        if (direction === "up") {
-          newLikes += 1; // 上投加1
-        } else {
-          newLikes -= 1; // 下投减1
-        }
-        
-        return newLikes;
-      });
-    }
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="flex h-14 items-center px-4">
+            <Button variant="ghost" size="icon" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h1 className="ml-4 text-lg font-semibold">Loading...</h1>
+          </div>
+        </header>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p>Loading post...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!post) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="flex h-14 items-center px-4">
+            <Button variant="ghost" size="icon" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h1 className="ml-4 text-lg font-semibold">Post Not Found</h1>
+          </div>
+        </header>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <p>Post not found or has been deleted.</p>
+            <Button onClick={() => router.back()} className="mt-4">Go Back</Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   // 处理回复按钮点击
@@ -254,12 +271,12 @@ export default function PostDetail({ params }: { params: { id: string } }) {
   }
   
   // 确认删除帖子
-  const confirmDeletePost = () => {
+  const confirmDeletePost = async () => {
     if (!post) return;
     
-    const success = deletePost(post.id);
-    
-    if (success) {
+    try {
+      await deletePost(post.id);
+      
       toast({
         title: "Post deleted",
         description: "Your post has been successfully deleted",
@@ -267,7 +284,8 @@ export default function PostDetail({ params }: { params: { id: string } }) {
       
       // 返回到主页
       router.push("/");
-    } else {
+    } catch (error) {
+      console.error('Error deleting post:', error);
       toast({
         title: "Error",
         description: "Failed to delete post. Please try again.",
@@ -378,20 +396,12 @@ export default function PostDetail({ params }: { params: { id: string } }) {
               <Button
                 variant="ghost"
                 size="icon"
-                className={`h-8 w-8 p-0 ${voteStatus === "up" ? "text-green-500" : ""}`}
-                onClick={() => handleVote("up")}
+                className={`h-8 w-8 p-0 ${isLiked ? "text-green-500" : ""}`}
+                onClick={handleLike}
               >
                 <ChevronUp className="h-4 w-4" />
               </Button>
               <span className="text-sm font-medium">{likeCount}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`h-8 w-8 p-0 ${voteStatus === "down" ? "text-red-500" : ""}`}
-                onClick={() => handleVote("down")}
-              >
-                <ChevronDown className="h-4 w-4" />
-              </Button>
             </div>
             <div className="flex items-center gap-2">
               <Button 
@@ -419,8 +429,8 @@ export default function PostDetail({ params }: { params: { id: string } }) {
             {!replyTo && (
               <div className="flex items-center gap-2 pt-2 pb-4">
                 <Avatar className="w-8 h-8">
-                  <AvatarImage src={currentUser?.avatar || "/placeholder.svg?height=32&width=32"} />
-                  <AvatarFallback>{currentUser?.name.charAt(0) || "U"}</AvatarFallback>
+                  <AvatarImage src={currentUser?.avatar_url || "/placeholder.svg?height=32&width=32"} />
+                  <AvatarFallback>{currentUser?.full_name?.charAt(0) || currentUser?.username?.charAt(0) || "U"}</AvatarFallback>
                 </Avatar>
                 <Input
                   placeholder="Add a comment..."
@@ -455,8 +465,8 @@ export default function PostDetail({ params }: { params: { id: string } }) {
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 border border-muted rounded-b-md">
                   <Avatar className="w-8 h-8">
-                    <AvatarImage src={currentUser?.avatar || "/placeholder.svg?height=32&width=32"} />
-                    <AvatarFallback>{currentUser?.name.charAt(0) || "U"}</AvatarFallback>
+                    <AvatarImage src={currentUser?.avatar_url || "/placeholder.svg?height=32&width=32"} />
+                    <AvatarFallback>{currentUser?.full_name?.charAt(0) || currentUser?.username?.charAt(0) || "U"}</AvatarFallback>
                   </Avatar>
                   <Input
                     placeholder={`Reply to @${replyTo.username}...`}

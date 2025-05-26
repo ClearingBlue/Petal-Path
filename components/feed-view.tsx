@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useCallback, memo } from "react"
 import { useRouter } from "next/navigation"
-import { Heart, MessageCircle, Share2, Bookmark, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
+import { MessageCircle, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
-import { fetchPosts } from '@/lib/db/posts'
+import { fetchPosts, togglePostLike, getUserLikedPosts, checkUserLikedPost } from '@/lib/db/posts'
 
 const PostCard = memo(({ 
   post, 
@@ -193,21 +193,34 @@ export default function FeedView() {
 
   useEffect(() => {
     setIsMounted(true)
-    // Initialize post likes and image indices
-    const initialLikes: Record<number, number> = {};
-    const initialIndices: Record<number, number> = {};
     async function load() {
       try {
-        const data = await fetchPosts()
+        const [data, userLikedPosts] = await Promise.all([
+          fetchPosts(),
+          getUserLikedPosts()
+        ])
+        
         setPosts(data)
+        
+        // Initialize post likes and image indices
+        const initialLikes: Record<number, number> = {};
+        const initialIndices: Record<number, number> = {};
+        const initialVotes: Record<number, "up" | "down" | null> = {};
+        
         data.forEach(post => {
           initialLikes[post.id] = post.likes;
           if (post.images.length > 0) {
             initialIndices[post.id] = 0;
           }
+          // Set initial vote state based on user's liked posts
+          if (userLikedPosts.has(post.id)) {
+            initialVotes[post.id] = 'up';
+          }
         });
+        
         setPostLikes(initialLikes);
         setCurrentImageIndices(initialIndices);
+        setVotedPosts(initialVotes);
       } catch (e) {
         console.error('Failed to load posts', e)
       }
@@ -227,50 +240,32 @@ export default function FeedView() {
     router.push(`/post/${postId}#comments`)
   }, [isMounted, router])
 
-  const handleVote = useCallback((postId: number, direction: "up" | "down", e: React.MouseEvent) => {
-    if (!isMounted) return;
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const currentVote = votedPosts[postId];
-    
-    if (currentVote === direction) {
-      setVotedPosts(prev => {
-        const newState = { ...prev };
-        delete newState[postId];
-        return newState;
-      });
-      
-      setPostLikes(prev => ({
-        ...prev,
-        [postId]: prev[postId] + (direction === "up" ? -1 : 1)
-      }));
-    } else {
+  const handleVote = useCallback(async (postId: number, direction: "up" | "down", e: React.MouseEvent) => {
+    if (!isMounted) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (direction !== 'up') {
+      // Down vote currently acts as a no-op for persistence.
+      return
+    }
+
+    try {
+      const { isLiked, likeCount } = await togglePostLike(postId)
+
+      // Persist UI state
       setVotedPosts(prev => ({
         ...prev,
-        [postId]: direction
-      }));
-      
-      setPostLikes(prev => {
-        const currentLikes = prev[postId] || 0;
-        let newLikes = currentLikes;
-        
-        if (currentVote === "up") {
-          newLikes -= 1;
-        } else if (currentVote === "down") {
-          newLikes += 1;
-        }
-        
-        if (direction === "up") {
-          newLikes += 1;
-        } else {
-          newLikes -= 1;
-        }
-        
-        return { ...prev, [postId]: newLikes };
-      });
+        [postId]: isLiked ? 'up' : null,
+      }))
+      setPostLikes(prev => ({
+        ...prev,
+        [postId]: likeCount,
+      }))
+    } catch (err) {
+      console.error('Failed to toggle like', err)
     }
-  }, [isMounted, votedPosts])
+  }, [isMounted])
 
   const handleImageError = useCallback((postId: number, imageIndex: number) => {
     setImageError(prev => ({ ...prev, [`post-${postId}-${imageIndex}`]: true }))
