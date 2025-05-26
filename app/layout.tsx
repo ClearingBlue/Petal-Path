@@ -3,6 +3,7 @@ import './globals.css'
 import { AppInitializer } from '@/components/app-init'
 import { Toaster } from '@/components/ui/toaster'
 import { SupabaseProvider } from '@/components/supabase-provider'
+import { AuthDebug } from '@/components/auth-debug'
 import { cookies } from 'next/headers'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 
@@ -31,6 +32,7 @@ export default async function RootLayout({
           {children}
           <AppInitializer />
           <Toaster />
+          <AuthDebug />
         </SupabaseProvider>
       </body>
     </html>

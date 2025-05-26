@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createBrowserSupabaseClient } from '@supabase/auth-helpers-nextjs'
 
 export interface SupabaseConfig {
   readonly url: string
@@ -12,7 +13,14 @@ function getConfig(): SupabaseConfig {
   }
 }
 
+// For client-side operations that need session persistence
 export function createSupabaseClient(): SupabaseClient {
-  const { url, anonKey } = getConfig()
-  return createClient(url, anonKey, { auth: { persistSession: false } })
+  if (typeof window !== 'undefined') {
+    // Browser environment - use auth helpers for session persistence
+    return createBrowserSupabaseClient()
+  } else {
+    // Server environment - use regular client
+    const { url, anonKey } = getConfig()
+    return createClient(url, anonKey)
+  }
 } 

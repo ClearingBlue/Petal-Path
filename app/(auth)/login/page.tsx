@@ -35,30 +35,39 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
-        <h1 className="text-2xl font-semibold text-center">Log in</h1>
-        <Input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <Input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? 'Signing in…' : 'Sign in'}
-        </Button>
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold">Welcome to PetalPath</h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            Sign in to explore Stanford's campus
+          </p>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <Input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? 'Signing in…' : 'Sign in'}
+          </Button>
+        </form>
+        
         <p className="text-center text-sm">
-          Don't have an account? <a href="/signup" className="underline">Sign up</a>
+          Don't have an account? <a href="/signup" className="underline">Join PetalPath</a>
         </p>
-      </form>
+      </div>
     </div>
   )
 } 

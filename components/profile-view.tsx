@@ -8,48 +8,42 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { getSavedLocations, getCurrentUser, getCurrentUserPosts } from "@/lib/data"
-import cache from "@/lib/cache"
+import { getSavedLocations } from "@/lib/data"
+import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
+import { fetchPostsByUser } from "@/lib/db/posts"
+import type { Post } from "@/lib/data/models/post"
 
 export default function ProfileView() {
   const router = useRouter()
   const savedLocations = getSavedLocations()
-  const [currentUser, setCurrentUser] = useState(getCurrentUser())
-  const [userPosts, setUserPosts] = useState(getCurrentUserPosts())
-  const [userSettings, setUserSettings] = useState<{
-    bio: string
-    location: string
-  } | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [userPosts, setUserPosts] = useState<Post[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    const cachedSettings = cache.get<{
-      name: string
-      username: string
-      bio: string
-      location: string
-      avatar: string
-    }>("user-settings")
-
-    if (cachedSettings) {
-      setUserSettings({
-        bio: cachedSettings.bio,
-        location: cachedSettings.location,
-      })
-    } else {
-      setUserSettings({
-        bio: "Stanford '25 | Computer Science | Coffee enthusiast | Always exploring campus",
-        location: "Stanford, CA",
-      })
+    async function loadProfileData() {
+      try {
+        setIsLoading(true)
+        
+        // Load user profile
+        const userProfile = await fetchCurrentUserProfile()
+        setProfile(userProfile)
+        
+        // Load user's posts
+        if (userProfile) {
+          const posts = await fetchPostsByUser(userProfile.id)
+          setUserPosts(posts)
+        }
+        
+      } catch (error) {
+        console.error('Error loading profile data:', error)
+      } finally {
+        setIsLoading(false)
+      }
     }
 
-    const cachedUser = cache.get<typeof currentUser>("current-user")
-    if (cachedUser) {
-      setCurrentUser(cachedUser)
-    }
-
-    setIsLoading(false)
+    loadProfileData()
   }, [])
 
   const handleLocationClick = (locationId: number) => {
@@ -101,14 +95,14 @@ export default function ProfileView() {
           <div className="flex items-center gap-4">
             <Avatar className="w-16 h-16 border-2 border-background hover:border-primary transition-colors">
               <AvatarImage 
-                src={currentUser.avatar || "/placeholder.svg?height=64&width=64"} 
+                src={profile?.avatar_url || "/placeholder.svg?height=64&width=64"} 
                 onError={() => handleImageError("avatar")}
               />
-              <AvatarFallback>{currentUser.name.charAt(0)}</AvatarFallback>
+              <AvatarFallback>{profile?.full_name?.charAt(0) || profile?.username?.charAt(0) || "U"}</AvatarFallback>
             </Avatar>
             <div>
-              <h2 className="text-xl font-bold">{currentUser.username}</h2>
-              <p className="text-sm text-muted-foreground">{currentUser.name}</p>
+              <h2 className="text-xl font-bold">{profile?.username || "Username not set"}</h2>
+              <p className="text-sm text-muted-foreground">{profile?.full_name || "Name not set"}</p>
             </div>
           </div>
           <div className="flex gap-2">
@@ -120,17 +114,17 @@ export default function ProfileView() {
             >
               <Inbox className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon">
+            <Button variant="outline" size="icon" onClick={handleSettingsClick}>
               <Settings className="h-4 w-4" />
             </Button>
           </div>
         </div>
 
         <div className="mb-6">
-          <p className="text-sm">{userSettings?.bio || "No bio available"}</p>
+          <p className="text-sm">{profile?.bio || "No bio available"}</p>
           <div className="flex items-center gap-1 mt-2 text-sm text-muted-foreground">
             <MapPin className="h-3 w-3" />
-            <span>{userSettings?.location || "Location not set"}</span>
+            <span>{profile?.location || "Location not set"}</span>
           </div>
         </div>
 

@@ -22,6 +22,7 @@ import { createPost } from '@/lib/db/posts'
 import { fetchLocations } from '@/lib/db/locations'
 import type { ExtendedLocation } from '@/lib/data/models/location'
 import dynamic from "next/dynamic"
+import { useSession } from '@supabase/auth-helpers-react'
 
 // Preset tags list
 const PRESET_TAGS = [
@@ -54,6 +55,7 @@ function dataURLtoFile(dataUrl: string, fileName: string): File {
 
 export default function CreatePost() {
   const router = useRouter();
+  const session = useSession();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     description: "",
@@ -67,6 +69,27 @@ export default function CreatePost() {
   const [searchTerm, setSearchTerm] = useState("");
   const [locationsList, setLocationsList] = useState<ExtendedLocation[]>([])
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null)
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (session === null) {
+      router.push('/login')
+    }
+  }, [session, router])
+
+  // Show loading while checking session
+  if (session === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
+
+  // Redirect if not authenticated (this will trigger the useEffect above)
+  if (session === null) {
+    return null
+  }
 
   // load locations on mount
   useEffect(() => {
@@ -222,6 +245,17 @@ export default function CreatePost() {
 
   // Submit form
   const handleSubmit = async () => {
+    // Check authentication
+    if (!session) {
+      toast({
+        title: "Authentication required",
+        description: "Please log in to create a post",
+        variant: "destructive",
+      });
+      router.push('/login');
+      return;
+    }
+
     // Validate form
     if (!formData.description.trim()) {
       toast({

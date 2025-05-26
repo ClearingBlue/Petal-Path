@@ -20,13 +20,56 @@ export async function fetchPosts(): Promise<Post[]> {
       tags,
       likes,
       created_at,
+      user_id,
       locations(id,name),
-      post_images(url),
-      user_id
+      post_images(url)
     `)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
-  return mapRowsToPosts(data ?? [])
+  
+  // Get unique user IDs
+  const userIds = [...new Set(data?.map(post => post.user_id).filter(Boolean))]
+  
+  // Fetch profiles for all users
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, username, full_name, avatar_url')
+    .in('id', userIds)
+  
+  // Create a map of user profiles
+  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
+  
+  return mapRowsToPosts(data ?? [], profileMap)
+}
+
+export async function fetchPostsByUser(userId: string): Promise<Post[]> {
+  const supabase = createSupabaseClient()
+  const { data, error } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      title,
+      description,
+      tags,
+      likes,
+      created_at,
+      user_id,
+      locations(id,name),
+      post_images(url)
+    `)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  
+  // Get profile for this user
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, username, full_name, avatar_url')
+    .eq('id', userId)
+    .single()
+  
+  const profileMap = new Map(profile ? [[profile.id, profile]] : [])
+  return mapRowsToPosts(data ?? [], profileMap)
 }
 
 export async function fetchPostsByLocation(locationId: number): Promise<Post[]> {
@@ -40,14 +83,27 @@ export async function fetchPostsByLocation(locationId: number): Promise<Post[]> 
       tags,
       likes,
       created_at,
+      user_id,
       locations(id,name),
-      post_images(url),
-      user_id
+      post_images(url)
     `)
     .eq('location_id', locationId)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
-  return mapRowsToPosts(data ?? [])
+  
+  // Get unique user IDs
+  const userIds = [...new Set(data?.map(post => post.user_id).filter(Boolean))]
+  
+  // Fetch profiles for all users
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, username, full_name, avatar_url')
+    .in('id', userIds)
+  
+  // Create a map of user profiles
+  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
+  
+  return mapRowsToPosts(data ?? [], profileMap)
 }
 
 export async function fetchPostById(id: number): Promise<Post | null> {
@@ -61,9 +117,9 @@ export async function fetchPostById(id: number): Promise<Post | null> {
       tags,
       likes,
       created_at,
+      user_id,
       locations(id,name),
-      post_images(url),
-      user_id
+      post_images(url)
     `)
     .eq('id', id)
     .single()
@@ -71,7 +127,18 @@ export async function fetchPostById(id: number): Promise<Post | null> {
     if (error.code === 'PGRST116') return null
     throw new Error(error.message)
   }
-  return data ? mapRowToPost(data) : null
+  
+  if (!data) return null
+  
+  // Get profile for this user
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, username, full_name, avatar_url')
+    .eq('id', data.user_id)
+    .single()
+  
+  const profileMap = new Map(profile ? [[profile.id, profile]] : [])
+  return mapRowToPost(data, profileMap)
 }
 
 export async function createPost(payload: NewPostPayload) {
@@ -100,7 +167,10 @@ export async function createPost(payload: NewPostPayload) {
   for (const file of payload.imageFiles) {
     const path = `${user.id}/${postRow.id}/${crypto.randomUUID()}`
     const { error: uploadErr } = await bucket.upload(path, file, { upsert: false })
-    if (uploadErr) throw new Error(uploadErr.message)
+    if (uploadErr) {
+      console.error('Bucket upload error:', uploadErr)
+      throw new Error(`Upload failed: ${uploadErr.message}`)
+    }
     const { data } = bucket.getPublicUrl(path)
     imageUrls.push(data.publicUrl)
   }
@@ -116,18 +186,19 @@ export async function createPost(payload: NewPostPayload) {
 
 // ---------------------------------------------------------------------------
 
-function mapRowsToPosts(rows: any[]): Post[] {
-  return rows.map(mapRowToPost)
+function mapRowsToPosts(rows: any[], profileMap: Map<string, any>): Post[] {
+  return rows.map(row => mapRowToPost(row, profileMap))
 }
 
-function mapRowToPost(row: any): Post {
+function mapRowToPost(row: any, profileMap: Map<string, any>): Post {
+  const profile = profileMap.get(row.user_id)
   return {
     id: row.id,
     user: {
       id: row.user_id ?? 0,
-      name: '',
-      username: '',
-      avatar: '',
+      name: profile?.full_name || '',
+      username: profile?.username || '',
+      avatar: profile?.avatar_url || '',
     },
     location: row.locations?.name ?? '',
     locationId: row.locations?.id ?? 0,

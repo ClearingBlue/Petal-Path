@@ -1,109 +1,137 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
-import { ArrowLeft, Save, RefreshCw } from "lucide-react"
+import { ArrowLeft, Save, RefreshCw, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { getCurrentUser } from "@/lib/data"
 import { useToast } from "@/hooks/use-toast"
-import cache from "@/lib/cache"
-import { resetAllData } from "@/lib/data/services/data-service"
+import { fetchCurrentUserProfile, updateProfile, uploadAvatar, checkUsernameAvailable, type Profile } from "@/lib/db/profiles"
+import { createSupabaseClient } from "@/lib/supabase"
 
 export default function Settings() {
   const { toast } = useToast()
-  const [user, setUser] = useState(getCurrentUser())
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
   const [name, setName] = useState("")
   const [username, setUsername] = useState("")
   const [bio, setBio] = useState("")
   const [location, setLocation] = useState("")
   const [avatar, setAvatar] = useState("")
+  const [email, setEmail] = useState("")
   const [isSaving, setIsSaving] = useState(false)
-  const [isResetting, setIsResetting] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [usernameError, setUsernameError] = useState("")
 
-  // Load user data from cache or fetch it
+  // Load user profile data
   useEffect(() => {
-    const cachedUserSettings = cache.get<{
-      name: string
-      username: string
-      bio: string
-      location: string
-      avatar: string
-    }>("user-settings")
-
-    if (cachedUserSettings) {
-      setName(cachedUserSettings.name)
-      setUsername(cachedUserSettings.username)
-      setBio(cachedUserSettings.bio)
-      setLocation(cachedUserSettings.location)
-      setAvatar(cachedUserSettings.avatar)
-    } else {
-      // Initialize with current user data
-      setName(user.name)
-      setUsername(user.username)
-      setBio("Stanford '25 | Computer Science | Coffee enthusiast | Always exploring campus")
-      setLocation("Stanford, CA")
-      setAvatar(user.avatar)
+    async function loadProfile() {
+      try {
+        const userProfile = await fetchCurrentUserProfile()
+        if (userProfile) {
+          setProfile(userProfile)
+          setName(userProfile.full_name || "")
+          setUsername(userProfile.username || "")
+          setBio(userProfile.bio || "")
+          setLocation(userProfile.location || "")
+          setAvatar(userProfile.avatar_url || "")
+        }
+        
+        // Get email from auth
+        const supabase = createSupabaseClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          setEmail(user.email || "")
+        }
+      } catch (error) {
+        console.error('Error loading profile:', error)
+        toast({
+          title: "Error",
+          description: "Failed to load profile data.",
+          variant: "destructive"
+        })
+      }
     }
-  }, [user])
 
-  const handleSave = () => {
+    loadProfile()
+  }, [])
+
+  const handleSave = async () => {
+    if (!profile) return
+    
     setIsSaving(true)
+    setUsernameError("")
 
-    // Simulate API call
-    setTimeout(() => {
-      // Save to cache
-      cache.set(
-        "user-settings",
-        {
-          name,
-          username,
-          bio,
-          location,
-          avatar,
-        },
-        // Cache for 30 days
-        30 * 24 * 60 * 60 * 1000,
-      )
-
-      // Update user object in cache
-      const updatedUser = {
-        ...user,
-        name,
-        username,
-        avatar,
+    try {
+      // Check username availability if it changed
+      if (username !== profile.username) {
+        const isAvailable = await checkUsernameAvailable(username, profile.id)
+        if (!isAvailable) {
+          setUsernameError("Username is already taken")
+          setIsSaving(false)
+          return
+        }
       }
 
-      cache.set("current-user", updatedUser)
+      // Update profile
+      await updateProfile(profile.id, {
+        full_name: name || undefined,
+        username: username || undefined,
+        bio: bio || undefined,
+        location: location || undefined,
+      })
 
-      setIsSaving(false)
       toast({
         title: "Settings saved",
         description: "Your profile information has been updated.",
       })
-    }, 1000)
+    } catch (error) {
+      console.error('Error saving profile:', error)
+      toast({
+        title: "Error",
+        description: "Failed to save profile changes.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleResetCache = () => {
-    setIsResetting(true)
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file || !profile) return
 
-    // Simulate API call to reset cache
-    setTimeout(() => {
-      // Reset all cached data
-      resetAllData()
-
-      setIsResetting(false)
+    setIsUploading(true)
+    try {
+      const avatarUrl = await uploadAvatar(profile.id, file)
+      setAvatar(avatarUrl)
+      
+      // Update profile with new avatar
+      await updateProfile(profile.id, { avatar_url: avatarUrl })
+      
       toast({
-        title: "Cache reset",
-        description: "All cached data has been cleared. The app will reload fresh data.",
+        title: "Avatar updated",
+        description: "Your profile picture has been updated.",
       })
+    } catch (error) {
+      console.error('Error uploading avatar:', error)
+      toast({
+        title: "Error",
+        description: "Failed to upload avatar.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsUploading(false)
+    }
+  }
 
-      // Force a page reload to reinitialize data from /data
-      window.location.href = "/"
-    }, 1000)
+  const handleLogout = async () => {
+    const supabase = createSupabaseClient()
+    await supabase.auth.signOut()
+    window.location.href = "/login"
   }
 
   return (
@@ -134,11 +162,30 @@ export default function Settings() {
           <div className="flex flex-col items-center">
             <Avatar className="w-24 h-24 mb-4">
               <AvatarImage src={avatar || "/placeholder.svg?height=96&width=96"} />
-              <AvatarFallback>{name.charAt(0)}</AvatarFallback>
+              <AvatarFallback>{name.charAt(0) || username.charAt(0) || "U"}</AvatarFallback>
             </Avatar>
-            <Button variant="outline" size="sm">
-              Change Photo
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                "Uploading..."
+              ) : (
+                <>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Change Photo
+                </>
+              )}
             </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarUpload}
+              className="hidden"
+            />
           </div>
 
           <div className="space-y-4">
@@ -155,6 +202,9 @@ export default function Settings() {
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Your username"
               />
+              {usernameError && (
+                <p className="text-xs text-destructive">{usernameError}</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -180,28 +230,16 @@ export default function Settings() {
 
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value="jane.doe@example.com" disabled />
+              <Input id="email" type="email" value={email} disabled />
               <p className="text-xs text-muted-foreground">Email cannot be changed. Contact support for assistance.</p>
             </div>
 
             <div className="pt-6 space-y-3">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={handleResetCache}
-                disabled={isResetting}
+              <Button 
+                variant="outline" 
+                className="w-full text-destructive border-destructive"
+                onClick={handleLogout}
               >
-                {isResetting ? (
-                  "Resetting..."
-                ) : (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Reset App Cache
-                  </>
-                )}
-              </Button>
-
-              <Button variant="outline" className="w-full text-destructive border-destructive">
                 Log Out
               </Button>
             </div>

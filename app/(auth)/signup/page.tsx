@@ -33,30 +33,44 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
-        <h1 className="text-2xl font-semibold text-center">Create account</h1>
-        <Input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <Input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? 'Signing up…' : 'Sign up'}
-        </Button>
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold">Join PetalPath</h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            Discover and share Stanford's hidden gems
+          </p>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <Input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          
+          <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md">
+            🌸 We'll create a unique PetalPath username for you! You can customize it later in settings.
+          </div>
+          
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? 'Creating account…' : 'Create account'}
+          </Button>
+        </form>
+        
         <p className="text-center text-sm">
           Already have an account? <a href="/login" className="underline">Sign in</a>
         </p>
-      </form>
+      </div>
     </div>
   )
 } 
