@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, MapPin, PlusCircle } from "lucide-react"
 import { createMarkerIcon } from "@/lib/leaflet-utils"
-import { addLocation } from "@/lib/data/services/location-service"
+import { createLocation } from '@/lib/db/locations'
 
 interface CreateLocationMapProps {
   onLocationCreated: (locationName: string) => void
@@ -97,16 +97,17 @@ export default function CreateLocationMap({ onLocationCreated }: CreateLocationM
       const [lat, lng] = markerPosition
 
       // 添加新位置
-      await addLocation({
+      await createLocation({
         name: locationName,
         address: locationAddress,
         lat,
         lng,
-        category: "custom", // 默认类别
-        visitCount: 1,
-        imageUrl: "https://source.unsplash.com/random/800x600/?place",
-        rating: 4.0,
-        tags: []
+        category: 'custom',
+        rating: 0,
+        visitCount: 0,
+        imageUrl: 'https://source.unsplash.com/random/800x600?place',
+        tags: [],
+        description: '',
       })
 
       onLocationCreated(locationName)

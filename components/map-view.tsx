@@ -20,8 +20,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { getLocations, getUserLocation, getNearbyLocations } from "@/lib/data"
-import { Location } from "@/lib/data/models/location"
+import { filterLocationsByRadius, fetchLocations } from "@/lib/db/locations"
+import type { ExtendedLocation as Location } from "@/lib/data/models/location"
 import { createMarkerIcon, createUserLocationIcon } from "@/lib/leaflet-utils"
 import dynamic from "next/dynamic"
 
@@ -134,7 +134,8 @@ export default function MapView() {
   const router = useRouter()
   const [selectedLocation, setSelectedLocation] = useState<number | null>(null)
   const [filterDistance, setFilterDistance] = useState([200])
-  const [locations, setLocations] = useState(getLocations())
+  const [allLocations, setAllLocations] = useState<Location[]>([])
+  const [locations, setLocations] = useState<Location[]>([])
   const [isClient, setIsClient] = useState(false)
   const containerId = "main-map-container"
 
@@ -190,42 +191,38 @@ export default function MapView() {
 
   // Initialize with Stanford locations 
   useEffect(() => {
-    if (!isBrowser) return; // Don't run on the server
+    if (!isBrowser) return
 
-    let isMounted = true
+    let active = true
 
-    async function initializeMap() {
+    async function load() {
       try {
         setIsLoading(true)
-
-        // Get nearby locations based on Stanford's coordinates
-        const nearby = getNearbyLocations(stanfordCoordinates.lat, stanfordCoordinates.lng, filterDistance[0])
-        if (isMounted) {
-          setLocations(nearby)
-          setIsLoading(false)
-        }
-      } catch (error) {
-        console.error("Error initializing map:", error)
-        if (isMounted) {
-          setIsLoading(false)
-        }
+        const locs = await fetchLocations()
+        if (!active) return
+        setAllLocations(locs)
+        const nearby = filterLocationsByRadius(locs, stanfordCoordinates.lat, stanfordCoordinates.lng, filterDistance[0])
+        setLocations(nearby)
+      } catch (err) {
+        console.error('Failed to load locations', err)
+      } finally {
+        if (active) setIsLoading(false)
       }
     }
 
-    initializeMap()
+    load()
 
     return () => {
-      isMounted = false
+      active = false
     }
-  }, [isBrowser]);
+  }, [isBrowser])
 
-  // Update nearby locations when filter distance changes
+  // effect when filterDistance changes
   useEffect(() => {
-    if (!isBrowser) return; // Don't run on the server
-
-    const nearby = getNearbyLocations(stanfordCoordinates.lat, stanfordCoordinates.lng, filterDistance[0])
+    if (!isBrowser) return
+    const nearby = filterLocationsByRadius(allLocations, stanfordCoordinates.lat, stanfordCoordinates.lng, filterDistance[0])
     setLocations(nearby)
-  }, [filterDistance, isBrowser]);
+  }, [filterDistance, allLocations, isBrowser])
 
   const handleLocationClick = (id: number) => {
     setSelectedLocation(id)

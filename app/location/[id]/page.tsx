@@ -11,11 +11,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getLocationById } from "@/lib/data/services/location-service"
-import { getPostsByLocation } from "@/lib/data/services/post-service"
-import type { Location, ExtendedLocation } from "@/lib/data/models/location"
+import { fetchPostsByLocation } from '@/lib/db/posts'
+import type { ExtendedLocation } from "@/lib/data/models/location"
 import type { Post } from "@/lib/data/models/post"
 import dynamic from "next/dynamic"
+import { fetchLocationById } from "@/lib/db/locations"
 
 // Dynamically load map component to avoid SSR issues
 const LocationMapWithNoSSR = dynamic(() => import("@/components/location-map"), {
@@ -46,14 +46,14 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
       setIsLoading(true)
       try {
         // Get location data
-        const locationData = getLocationById(locationId)
+        const locationData = await fetchLocationById(locationId)
         if (!locationData) {
           return
         }
         setLocation(locationData)
         
         // Get posts data
-        const locationPosts = getPostsByLocation(locationId)
+        const locationPosts = await fetchPostsByLocation(locationId)
         setPosts(locationPosts)
         
         // Initialize post likes

@@ -7,8 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
-import { getPosts } from "@/lib/data"
-import { getLocationByName } from "@/lib/data/services/location-service"
+import { fetchPosts } from '@/lib/db/posts'
 
 const PostCard = memo(({ 
   post, 
@@ -36,10 +35,7 @@ const PostCard = memo(({
   const router = useRouter();
   const currentIndex = currentImageIndices[post.id] ?? 0;
 
-  const getLocationIdByName = (locationName: string): number => {
-    const location = getLocationByName(locationName);
-    return location?.id || 0;
-  };
+  const getLocationIdByName = (_: string): number => post.locationId ?? 0;
 
   return (
     <Card className="overflow-hidden">
@@ -188,7 +184,7 @@ PostCard.displayName = 'PostCard';
 
 export default function FeedView() {
   const router = useRouter()
-  const posts = getPosts()
+  const [posts, setPosts] = useState<any[]>([])
   const [votedPosts, setVotedPosts] = useState<Record<number, "up" | "down" | null>>({})
   const [postLikes, setPostLikes] = useState<Record<number, number>>({})
   const [isMounted, setIsMounted] = useState(false)
@@ -200,14 +196,23 @@ export default function FeedView() {
     // Initialize post likes and image indices
     const initialLikes: Record<number, number> = {};
     const initialIndices: Record<number, number> = {};
-    posts.forEach(post => {
-      initialLikes[post.id] = post.likes;
-      if (post.images.length > 0) {
-        initialIndices[post.id] = 0;
+    async function load() {
+      try {
+        const data = await fetchPosts()
+        setPosts(data)
+        data.forEach(post => {
+          initialLikes[post.id] = post.likes;
+          if (post.images.length > 0) {
+            initialIndices[post.id] = 0;
+          }
+        });
+        setPostLikes(initialLikes);
+        setCurrentImageIndices(initialIndices);
+      } catch (e) {
+        console.error('Failed to load posts', e)
       }
-    });
-    setPostLikes(initialLikes);
-    setCurrentImageIndices(initialIndices);
+    }
+    load()
   }, [])
 
   const handlePostClick = useCallback((postId: number) => {

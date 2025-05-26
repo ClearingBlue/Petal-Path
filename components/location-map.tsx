@@ -1,9 +1,10 @@
 "use client"
 
-import { useRef } from "react"
-import { locations } from "@/lib/data/models/location"
+import { useRef, useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import dynamic from "next/dynamic"
+import { fetchLocations } from '@/lib/db/locations'
+import type { ExtendedLocation } from '@/lib/data/models/location'
 
 // 地图标记类型
 interface MapMarker {
@@ -44,20 +45,37 @@ export default function LocationMap({ selectedLocation, onSelectLocation }: Loca
   // 斯坦福大学坐标
   const stanfordCoordinates = { lat: 37.4275, lng: -122.1697 };
   
-  // 准备地图标记数据
-  const mapMarkers = locations.map(location => ({
-    id: location.id,
-    position: [location.lat, location.lng] as [number, number],
-    name: location.name,
-    selected: selectedLocation === location.name
-  }));
-  
+  const [markers, setMarkers] = useState<MapMarker[]>([])
+
+  useEffect(() => {
+    let active = true
+    async function load() {
+      try {
+        const locs: ExtendedLocation[] = await fetchLocations()
+        if (!active) return
+        const mapMarkers = locs.map((location) => ({
+          id: location.id,
+          position: [location.lat, location.lng] as [number, number],
+          name: location.name,
+          selected: selectedLocation === location.name,
+        }))
+        setMarkers(mapMarkers)
+      } catch (e) {
+        console.error('Failed to load locations', e)
+      }
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [selectedLocation])
+
   return (
     <LeafletMap
       mapKey={mapKey}
       center={[stanfordCoordinates.lat, stanfordCoordinates.lng]}
       zoom={14}
-      markers={mapMarkers}
+      markers={markers}
       selectedLocation={selectedLocation}
       onMarkerClick={handleMarkerClick}
     />

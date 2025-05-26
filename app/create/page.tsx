@@ -17,11 +17,11 @@ import {
   DialogFooter
 } from "@/components/ui/dialog"
 import { toast } from "@/components/ui/use-toast"
-import { createPost } from "@/lib/data/services/post-service"
 import Image from "next/image"
-import { locations, Location } from "@/lib/data/models/location"
+import { createPost } from '@/lib/db/posts'
+import { fetchLocations } from '@/lib/db/locations'
+import type { ExtendedLocation } from '@/lib/data/models/location'
 import dynamic from "next/dynamic"
-import { createMarkerIcon, createUserLocationIcon } from "@/lib/leaflet-utils"
 
 // Preset tags list
 const PRESET_TAGS = [
@@ -39,6 +39,19 @@ const LocationMapWithNoSSR = dynamic(() => import("@/components/location-map"), 
   ),
 });
 
+function dataURLtoFile(dataUrl: string, fileName: string): File {
+  const arr = dataUrl.split(',')
+  const mimeMatch = arr[0].match(/:(.*?);/)
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg'
+  const bstr = atob(arr[arr.length - 1])
+  let n = bstr.length
+  const u8arr = new Uint8Array(n)
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n)
+  }
+  return new File([u8arr], fileName, { type: mime })
+}
+
 export default function CreatePost() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +64,61 @@ export default function CreatePost() {
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [isLocationDialogOpen, setIsLocationDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [searchTerm, setSearchTerm] = useState(""); 
+  const [searchTerm, setSearchTerm] = useState("");
+  const [locationsList, setLocationsList] = useState<ExtendedLocation[]>([])
+  const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null)
+
+  // load locations on mount
+  useEffect(() => {
+    async function loadLocs() {
+      try {
+        const data = await fetchLocations()
+        setLocationsList(data)
+      } catch (e) {
+        console.error('Failed to load locations', e)
+      }
+    }
+    loadLocs()
+  }, [])
+
+  // restore draft from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const raw = localStorage.getItem('post-draft')
+    if (!raw) return
+    try {
+      const draft = JSON.parse(raw)
+      setFormData({
+        description: draft.description ?? '',
+        location: draft.location ?? '',
+        tags: draft.tags ?? [],
+      })
+      setSelectedLocationId(draft.locationId ?? null)
+      if (Array.isArray(draft.previews)) {
+        setImagePreviews(draft.previews)
+        const files = draft.previews.map((url: string, idx: number) => dataURLtoFile(url, `draft-${idx}.png`))
+        setImageFiles(files)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  // persist draft on change
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const draft = {
+      description: formData.description,
+      location: formData.location,
+      locationId: selectedLocationId,
+      tags: formData.tags,
+    }
+    try {
+      localStorage.setItem('post-draft', JSON.stringify(draft))
+    } catch {
+      // quota exceeded – ignore silently
+    }
+  }, [formData, selectedLocationId, imagePreviews])
 
   // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -135,8 +202,11 @@ export default function CreatePost() {
   };
 
   // Confirm location selection
-  const confirmLocation = (location: string) => {
-    setFormData(prev => ({ ...prev, location }));
+  const confirmLocation = (locationName: string) => {
+    const loc = locationsList.find((l) => l.name === locationName)
+    if (!loc) return
+    setFormData(prev => ({ ...prev, location: locationName }));
+    setSelectedLocationId(loc.id)
     setIsLocationDialogOpen(false);
   };
   
@@ -146,9 +216,9 @@ export default function CreatePost() {
   };
   
   // Filter locations list
-  const filteredLocations = locations.filter(location => 
-    location.name.toLowerCase().includes(searchTerm)
-  );
+  const filteredLocations = locationsList.filter((loc) =>
+    loc.name.toLowerCase().includes(searchTerm)
+  )
 
   // Submit form
   const handleSubmit = async () => {
@@ -187,19 +257,25 @@ export default function CreatePost() {
       // Create new post - generate title from first few words of description
       const generatedTitle = formData.description.split(' ').slice(0, 3).join(' ') + '...';
       
-      // Create new post
+      if (!selectedLocationId) {
+        toast({ title: 'Please select a valid location', variant: 'destructive' })
+        return
+      }
+
       await createPost({
         title: generatedTitle,
-        content: formData.description,
-        location: formData.location,
+        description: formData.description,
+        locationId: selectedLocationId,
         tags: formData.tags,
-        imageUrls
-      });
+        imageFiles: imageFiles,
+      })
       
       toast({
         title: "Post successful",
         description: "Your post has been published",
       });
+
+      if (typeof window !== 'undefined') localStorage.removeItem('post-draft')
 
       // Redirect to Feed page
       router.push("/");
@@ -372,11 +448,11 @@ export default function CreatePost() {
               {/* Location list */}
               <div className="space-y-2">
                 {filteredLocations.length > 0 ? (
-                  filteredLocations.map(location => (
-                    <Button 
+                  filteredLocations.map((location) => (
+                    <Button
                       key={location.id}
-                      variant={formData.location === location.name ? "default" : "outline"} 
-                      className="w-full justify-start text-left" 
+                      variant={formData.location === location.name ? 'default' : 'outline'}
+                      className="w-full justify-start text-left"
                       onClick={() => confirmLocation(location.name)}
                     >
                       <MapPin className="h-4 w-4 min-w-4 mr-2 flex-shrink-0" />
@@ -386,33 +462,16 @@ export default function CreatePost() {
                 ) : (
                   <div className="py-4 text-center">
                     <p className="text-muted-foreground">No results for "{searchTerm}"</p>
-                    <Button 
-                      variant="outline" 
-                      className="mt-2" 
-                      onClick={() => {
-                        setIsLocationDialogOpen(false);
-                        router.push("/create/location");
-                      }}
-                    >
-                      <PlusCircle className="h-4 w-4 mr-2" />
-                      Create New Location
-                    </Button>
                   </div>
                 )}
               </div>
 
-              {/* Create new location */}
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">Can't find your location?</p>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  className="self-end sm:self-auto"
-                  onClick={() => {
-                    setIsLocationDialogOpen(false);
-                    router.push("/create/location");
-                  }}
-                >
+              {/* Create new location action */}
+              <div className="flex justify-center pt-4">
+                <Button variant="outline" className="w-full" onClick={() => {
+                  setIsLocationDialogOpen(false)
+                  router.push('/create/location')
+                }}>
                   <PlusCircle className="h-4 w-4 mr-2" />
                   Create New Location
                 </Button>
