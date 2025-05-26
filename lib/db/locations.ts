@@ -34,7 +34,17 @@ export async function fetchLocationById(id: number): Promise<ExtendedLocation | 
  */
 export async function createLocation(payload: Omit<ExtendedLocation, 'id' | 'visitCount' | 'rating' | 'createdAt'>) {
   const supabase = createSupabaseClient()
-  const { data, error } = await supabase.from('locations').insert(payload).select('*').single()
+  const dbPayload = {
+    name: payload.name,
+    description: payload.description,
+    image_url: payload.imageUrl,
+    address: payload.address,
+    lat: payload.lat,
+    lng: payload.lng,
+    category: payload.category,
+    tags: payload.tags,
+  }
+  const { data, error } = await supabase.from('locations').insert(dbPayload).select('*').single()
   if (error) throw new Error(error.message)
   return mapRowToLocation(data)
 }
