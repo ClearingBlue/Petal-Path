@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
-import { fetchPosts, togglePostLike, getUserLikedPosts, checkUserLikedPost } from '@/lib/db/posts'
+import { fetchPosts, togglePostVote, getUserVotes } from '@/lib/db/posts'
 import { fetchCurrentUserProfile } from '@/lib/db/profiles'
 
 const PostCard = memo(({ 
@@ -18,8 +18,8 @@ const PostCard = memo(({
   onImageNavigation, 
   onImageError,
   onAvatarClick,
-  votedPosts,
-  postLikes,
+  userVotes,
+  postScores,
   currentImageIndices,
   imageError 
 }: {
@@ -30,8 +30,8 @@ const PostCard = memo(({
   onImageNavigation: (postId: number, direction: "prev" | "next", e: React.MouseEvent) => void;
   onImageError: (postId: number, imageIndex: number) => void;
   onAvatarClick: (userId: string) => void;
-  votedPosts: Record<number, "up" | "down" | null>;
-  postLikes: Record<number, number>;
+  userVotes: Record<number, "up" | "down" | null>;
+  postScores: Record<number, number>;
   currentImageIndices: Record<number, number>;
   imageError: Record<string, boolean>;
 }) => {
@@ -39,6 +39,9 @@ const PostCard = memo(({
   const currentIndex = currentImageIndices[post.id] ?? 0;
 
   const getLocationIdByName = (_: string): number => post.locationId ?? 0;
+
+  // Display the current score (which is now upvotes - downvotes)
+  const displayScore = postScores[post.id] !== undefined ? postScores[post.id] : post.likes;
 
   return (
     <Card className="overflow-hidden">
@@ -157,16 +160,18 @@ const PostCard = memo(({
           <Button
             variant="ghost"
             size="sm"
-            className={`h-8 w-8 p-0 ${votedPosts[post.id] === "up" ? "text-green-500" : ""}`}
+            className={`h-8 w-8 p-0 ${userVotes[post.id] === "up" ? "text-green-500" : ""}`}
             onClick={(e) => onVote(post.id, "up", e)}
           >
             <ChevronUp className="h-4 w-4" />
           </Button>
-          <span className="text-sm font-medium">{postLikes[post.id] !== undefined ? postLikes[post.id] : post.likes}</span>
+          <span className={`text-sm font-medium ${displayScore > 0 ? 'text-green-600' : displayScore < 0 ? 'text-red-600' : ''}`}>
+            {displayScore}
+          </span>
           <Button
             variant="ghost"
             size="sm"
-            className={`h-8 w-8 p-0 ${votedPosts[post.id] === "down" ? "text-red-500" : ""}`}
+            className={`h-8 w-8 p-0 ${userVotes[post.id] === "down" ? "text-red-500" : ""}`}
             onClick={(e) => onVote(post.id, "down", e)}
           >
             <ChevronDown className="h-4 w-4" />
@@ -188,8 +193,8 @@ PostCard.displayName = 'PostCard';
 export default function FeedView() {
   const router = useRouter()
   const [posts, setPosts] = useState<any[]>([])
-  const [votedPosts, setVotedPosts] = useState<Record<number, "up" | "down" | null>>({})
-  const [postLikes, setPostLikes] = useState<Record<number, number>>({})
+  const [userVotes, setUserVotes] = useState<Record<number, "up" | "down" | null>>({})
+  const [postScores, setPostScores] = useState<Record<number, number>>({})
   const [isMounted, setIsMounted] = useState(false)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
   const [currentImageIndices, setCurrentImageIndices] = useState<Record<number, number>>({})
@@ -199,34 +204,35 @@ export default function FeedView() {
     setIsMounted(true)
     async function load() {
       try {
-        const [data, userLikedPosts, currentUser] = await Promise.all([
+        const [data, currentUser] = await Promise.all([
           fetchPosts(),
-          getUserLikedPosts(),
           fetchCurrentUserProfile()
         ])
         
         setPosts(data)
         setCurrentUserId(currentUser?.id || null)
         
-        // Initialize post likes and image indices
-        const initialLikes: Record<number, number> = {};
+        // Get user votes for all posts
+        const postIds = data.map(post => post.id)
+        const userVotesMap = await getUserVotes(postIds)
+        
+        // Initialize post scores and image indices
+        const initialScores: Record<number, number> = {};
         const initialIndices: Record<number, number> = {};
         const initialVotes: Record<number, "up" | "down" | null> = {};
         
         data.forEach(post => {
-          initialLikes[post.id] = post.likes;
+          initialScores[post.id] = post.likes; // This is now the net score
           if (post.images.length > 0) {
             initialIndices[post.id] = 0;
           }
-          // Set initial vote state based on user's liked posts
-          if (userLikedPosts.has(post.id)) {
-            initialVotes[post.id] = 'up';
-          }
+          // Set initial vote state based on user's votes
+          initialVotes[post.id] = userVotesMap.get(post.id) || null;
         });
         
-        setPostLikes(initialLikes);
+        setPostScores(initialScores);
         setCurrentImageIndices(initialIndices);
-        setVotedPosts(initialVotes);
+        setUserVotes(initialVotes);
       } catch (e) {
         console.error('Failed to load posts', e)
       }
@@ -241,56 +247,58 @@ export default function FeedView() {
 
   const handleCommentClick = useCallback((postId: number, e: React.MouseEvent) => {
     if (!isMounted) return;
-    e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation()
     router.push(`/post/${postId}#comments`)
   }, [isMounted, router])
 
   const handleVote = useCallback(async (postId: number, direction: "up" | "down", e: React.MouseEvent) => {
-    if (!isMounted) return
-    e.preventDefault()
-    e.stopPropagation()
-
-    if (direction !== 'up') {
-      // Down vote currently acts as a no-op for persistence.
-      return
-    }
+    if (!isMounted) return;
+    e.stopPropagation();
 
     try {
-      const { isLiked, likeCount } = await togglePostLike(postId)
+      const { userVote, voteData } = await togglePostVote(postId, direction)
 
-      // Persist UI state
-      setVotedPosts(prev => ({
+      // Update UI state
+      setUserVotes(prev => ({
         ...prev,
-        [postId]: isLiked ? 'up' : null,
+        [postId]: userVote,
       }))
-      setPostLikes(prev => ({
+      setPostScores(prev => ({
         ...prev,
-        [postId]: likeCount,
+        [postId]: voteData.score,
       }))
     } catch (err) {
-      console.error('Failed to toggle like', err)
+      console.error('Failed to toggle vote', err)
     }
   }, [isMounted])
 
-  const handleImageError = useCallback((postId: number, imageIndex: number) => {
-    setImageError(prev => ({ ...prev, [`post-${postId}-${imageIndex}`]: true }))
-  }, [])
-
   const handleImageNavigation = useCallback((postId: number, direction: "prev" | "next", e: React.MouseEvent) => {
+    if (!isMounted) return;
     e.stopPropagation();
-    const post = posts.find(p => p.id === postId);
-    if (!post || !post.images.length) return;
-
+    
     setCurrentImageIndices(prev => {
+      const post = posts.find(p => p.id === postId);
+      if (!post || post.images.length <= 1) return prev;
+      
       const currentIndex = prev[postId] ?? 0;
-      const newIndex = direction === "next" 
-        ? (currentIndex + 1) % post.images.length
-        : (currentIndex - 1 + post.images.length) % post.images.length;
+      let newIndex: number;
+      
+      if (direction === "prev") {
+        newIndex = currentIndex === 0 ? post.images.length - 1 : currentIndex - 1;
+      } else {
+        newIndex = currentIndex === post.images.length - 1 ? 0 : currentIndex + 1;
+      }
       
       return { ...prev, [postId]: newIndex };
     });
-  }, [posts])
+  }, [isMounted, posts])
+
+  const handleImageError = useCallback((postId: number, imageIndex: number) => {
+    setImageError(prev => ({
+      ...prev,
+      [`post-${postId}-${imageIndex}`]: true
+    }));
+  }, [])
 
   const handleAvatarClick = useCallback((userId: string) => {
     if (!isMounted) return;
@@ -317,8 +325,8 @@ export default function FeedView() {
             onImageNavigation={handleImageNavigation}
             onImageError={handleImageError}
             onAvatarClick={handleAvatarClick}
-            votedPosts={votedPosts}
-            postLikes={postLikes}
+            userVotes={userVotes}
+            postScores={postScores}
             currentImageIndices={currentImageIndices}
             imageError={imageError}
           />

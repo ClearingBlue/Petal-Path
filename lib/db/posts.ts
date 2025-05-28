@@ -9,8 +9,48 @@ export interface NewPostPayload {
   readonly imageFiles: File[] // browser File objects
 }
 
+export interface VoteData {
+  upvotes: number
+  downvotes: number
+  score: number
+}
+
+export interface UserVote {
+  postId: number
+  voteType: 'up' | 'down' | null
+}
+
 export async function fetchPosts(): Promise<Post[]> {
   const supabase = createSupabaseClient()
+  
+  // Use the new ranked feed function for better post ordering
+  const { data: rankedData, error: rankedError } = await supabase
+    .rpc('get_ranked_feed', { limit_count: 50 })
+  
+  if (rankedError) {
+    console.error('Error fetching ranked feed, falling back to chronological:', rankedError)
+    // Fallback to chronological ordering if ranking fails
+    const { data, error } = await supabase
+      .from('posts')
+      .select(`
+        id,
+        title,
+        description,
+        tags,
+        created_at,
+        user_id,
+        locations(id,name),
+        post_images(url)
+      `)
+      .order('created_at', { ascending: false })
+    if (error) throw new Error(error.message)
+    return await processPostsData(data ?? [])
+  }
+  
+  // Fetch full post data for the ranked posts
+  const postIds = rankedData?.map((p: any) => p.post_id) || []
+  if (postIds.length === 0) return []
+  
   const { data, error } = await supabase
     .from('posts')
     .select(`
@@ -23,44 +63,19 @@ export async function fetchPosts(): Promise<Post[]> {
       locations(id,name),
       post_images(url)
     `)
-    .order('created_at', { ascending: false })
+    .in('id', postIds)
+  
   if (error) throw new Error(error.message)
   
-  // Get unique user IDs
-  const userIds = [...new Set(data?.map(post => post.user_id).filter(Boolean))]
+  // Sort the results according to the ranking order
+  const rankingMap = new Map(rankedData?.map((p: any) => [p.post_id, p.ranking_score]) || [])
+  const sortedData = (data ?? []).sort((a, b) => {
+    const scoreA = Number(rankingMap.get(a.id)) || 0
+    const scoreB = Number(rankingMap.get(b.id)) || 0
+    return scoreB - scoreA
+  })
   
-  // Fetch profiles for all users
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, username, full_name, avatar_url')
-    .in('id', userIds)
-  
-  // Create a map of user profiles
-  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
-  
-  // For any missing profiles, try to fetch them individually (this will create them if needed)
-  const missingUserIds = userIds.filter(id => !profileMap.has(id))
-  if (missingUserIds.length > 0) {
-    console.log(`Found ${missingUserIds.length} users without profiles, attempting to resolve`)
-    const { fetchProfileById } = await import('./profiles')
-    
-    for (const userId of missingUserIds) {
-      try {
-        const profile = await fetchProfileById(userId)
-        if (profile) {
-          profileMap.set(userId, profile)
-        }
-      } catch (error) {
-        console.error(`Failed to resolve profile for user ${userId}:`, error)
-      }
-    }
-  }
-  
-  // Get like counts for all posts
-  const postIds = data?.map(post => post.id) || []
-  const likeCounts = await getLikeCountsForPosts(postIds)
-  
-  return mapRowsToPosts(data ?? [], profileMap, likeCounts)
+  return await processPostsData(sortedData)
 }
 
 export async function fetchPostsByUser(userId: string): Promise<Post[]> {
@@ -82,19 +97,7 @@ export async function fetchPostsByUser(userId: string): Promise<Post[]> {
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
-
-  // Get profile for this user using the improved fetchProfileById function
-  const { fetchProfileById } = await import('./profiles')
-  const profile = await fetchProfileById(userId)
-
-  // Create a map of user profiles
-  const profileMap = new Map(profile ? [[profile.id, profile]] : [])
-
-  // Get like counts for all posts
-  const postIds = data?.map(post => post.id) || []
-  const likeCounts = await getLikeCountsForPosts(postIds)
-
-  return mapRowsToPosts(data ?? [], profileMap, likeCounts)
+  return await processPostsData(data ?? [])
 }
 
 export async function fetchPostsByLocation(locationId: number): Promise<Post[]> {
@@ -114,48 +117,13 @@ export async function fetchPostsByLocation(locationId: number): Promise<Post[]> 
     .eq('location_id', locationId)
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
-  
-  // Get unique user IDs
-  const userIds = [...new Set(data?.map(post => post.user_id).filter(Boolean))]
-  
-  // Fetch profiles for all users
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, username, full_name, avatar_url')
-    .in('id', userIds)
-  
-  // Create a map of user profiles
-  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
-  
-  // For any missing profiles, try to fetch them individually (this will create them if needed)
-  const missingUserIds = userIds.filter(id => !profileMap.has(id))
-  if (missingUserIds.length > 0) {
-    console.log(`Found ${missingUserIds.length} users without profiles in location ${locationId}, attempting to resolve`)
-    const { fetchProfileById } = await import('./profiles')
-    
-    for (const userId of missingUserIds) {
-      try {
-        const profile = await fetchProfileById(userId)
-        if (profile) {
-          profileMap.set(userId, profile)
-        }
-      } catch (error) {
-        console.error(`Failed to resolve profile for user ${userId}:`, error)
-      }
-    }
-  }
-  
-  // Get like counts for all posts
-  const postIds = data?.map(post => post.id) || []
-  const likeCounts = await getLikeCountsForPosts(postIds)
-  
-  return mapRowsToPosts(data ?? [], profileMap, likeCounts)
+  return await processPostsData(data ?? [])
 }
 
 export async function fetchTopPostsByLocation(locationId: number, limit: number = 2): Promise<Post[]> {
   const supabase = createSupabaseClient()
   
-  // First get all posts for this location with their like counts
+  // First get all posts for this location
   const { data, error } = await supabase
     .from('posts')
     .select(`
@@ -172,47 +140,17 @@ export async function fetchTopPostsByLocation(locationId: number, limit: number 
   
   if (error) throw new Error(error.message)
   
-  // Get like counts for all posts
+  // Get vote counts for all posts
   const postIds = data?.map(post => post.id) || []
-  const likeCounts = await getLikeCountsForPosts(postIds)
+  const voteCounts = await getVoteCountsForPosts(postIds)
   
-  // Sort by like count and take top posts
-  const postsWithLikes = (data ?? []).map(post => ({
+  // Sort by score and take top posts
+  const postsWithScores = (data ?? []).map(post => ({
     ...post,
-    likeCount: likeCounts.get(post.id) || 0
-  })).sort((a, b) => b.likeCount - a.likeCount).slice(0, limit)
+    score: voteCounts.get(post.id)?.score || 0
+  })).sort((a, b) => b.score - a.score).slice(0, limit)
   
-  // Get unique user IDs
-  const userIds = [...new Set(postsWithLikes.map(post => post.user_id).filter(Boolean))]
-  
-  // Fetch profiles for all users
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, username, full_name, avatar_url')
-    .in('id', userIds)
-  
-  // Create a map of user profiles
-  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
-  
-  // For any missing profiles, try to fetch them individually (this will create them if needed)
-  const missingUserIds = userIds.filter(id => !profileMap.has(id))
-  if (missingUserIds.length > 0) {
-    console.log(`Found ${missingUserIds.length} users without profiles in top posts for location ${locationId}, attempting to resolve`)
-    const { fetchProfileById } = await import('./profiles')
-    
-    for (const userId of missingUserIds) {
-      try {
-        const profile = await fetchProfileById(userId)
-        if (profile) {
-          profileMap.set(userId, profile)
-        }
-      } catch (error) {
-        console.error(`Failed to resolve profile for user ${userId}:`, error)
-      }
-    }
-  }
-  
-  return mapRowsToPosts(postsWithLikes, profileMap, likeCounts)
+  return await processPostsData(postsWithScores)
 }
 
 export async function fetchPostById(id: number): Promise<Post | null> {
@@ -238,46 +176,63 @@ export async function fetchPostById(id: number): Promise<Post | null> {
   
   if (!data) return null
   
-  // Get profile for this user using the improved fetchProfileById function
-  const { fetchProfileById } = await import('./profiles')
-  const profile = await fetchProfileById(data.user_id)
-  
-  const profileMap = new Map(profile ? [[profile.id, profile]] : [])
-  
-  // Get like count for this post
-  const likeCounts = await getLikeCountsForPosts([id])
-  
-  return mapRowToPost(data, profileMap, likeCounts)
+  const posts = await processPostsData([data])
+  return posts[0] || null
 }
 
-// Helper function to get like counts for multiple posts
-async function getLikeCountsForPosts(postIds: number[]): Promise<Map<number, number>> {
+// Enhanced helper function to get vote counts for multiple posts
+async function getVoteCountsForPosts(postIds: number[]): Promise<Map<number, VoteData>> {
   if (postIds.length === 0) return new Map()
   
   const supabase = createSupabaseClient()
   const { data, error } = await supabase
-    .from('post_likes')
-    .select('post_id')
-    .in('post_id', postIds)
+    .rpc('get_post_vote_counts', { post_ids: postIds })
   
   if (error) {
-    console.error('Error fetching like counts:', error)
+    console.error('Error fetching vote counts:', error)
     return new Map()
   }
   
-  // Count likes per post
-  const likeCounts = new Map<number, number>()
-  postIds.forEach(id => likeCounts.set(id, 0)) // Initialize all to 0
-  
-  data?.forEach(like => {
-    const currentCount = likeCounts.get(like.post_id) || 0
-    likeCounts.set(like.post_id, currentCount + 1)
+  const voteMap = new Map<number, VoteData>()
+  data?.forEach((vote: any) => {
+    voteMap.set(vote.post_id, {
+      upvotes: vote.upvotes,
+      downvotes: vote.downvotes,
+      score: vote.score
+    })
   })
   
-  return likeCounts
+  return voteMap
 }
 
-// Helper function to get user's liked posts
+// Helper function to get user's votes for multiple posts
+export async function getUserVotes(postIds: number[]): Promise<Map<number, 'up' | 'down'>> {
+  if (postIds.length === 0) return new Map()
+  
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) return new Map()
+
+  const { data, error } = await supabase
+    .rpc('get_user_votes', { 
+      user_id_param: user.id, 
+      post_ids: postIds 
+    })
+
+  if (error) {
+    console.error('Error fetching user votes:', error)
+    return new Map()
+  }
+
+  const voteMap = new Map<number, 'up' | 'down'>()
+  data?.forEach((vote: any) => {
+    voteMap.set(vote.post_id, vote.vote_type as 'up' | 'down')
+  })
+
+  return voteMap
+}
+
+// Legacy function for backwards compatibility - now returns upvotes only
 export async function getUserLikedPosts(): Promise<Set<number>> {
   const supabase = createSupabaseClient()
   const user = (await supabase.auth.getUser()).data.user
@@ -287,6 +242,7 @@ export async function getUserLikedPosts(): Promise<Set<number>> {
     .from('post_likes')
     .select('post_id')
     .eq('user_id', user.id)
+    .eq('vote_type', 'up')
 
   if (error) {
     console.error('Error fetching user liked posts:', error)
@@ -294,6 +250,48 @@ export async function getUserLikedPosts(): Promise<Set<number>> {
   }
 
   return new Set(data?.map(like => like.post_id) || [])
+}
+
+// Common processing function for all post data
+async function processPostsData(data: any[]): Promise<Post[]> {
+  if (data.length === 0) return []
+  
+  // Get unique user IDs
+  const userIds = [...new Set(data.map(post => post.user_id).filter(Boolean))]
+  
+  // Fetch profiles for all users
+  const supabase = createSupabaseClient()
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, username, full_name, avatar_url')
+    .in('id', userIds)
+  
+  // Create a map of user profiles
+  const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
+  
+  // For any missing profiles, try to fetch them individually
+  const missingUserIds = userIds.filter(id => !profileMap.has(id))
+  if (missingUserIds.length > 0) {
+    console.log(`Found ${missingUserIds.length} users without profiles, attempting to resolve`)
+    const { fetchProfileById } = await import('./profiles')
+    
+    for (const userId of missingUserIds) {
+      try {
+        const profile = await fetchProfileById(userId)
+        if (profile) {
+          profileMap.set(userId, profile)
+        }
+      } catch (error) {
+        console.error(`Failed to resolve profile for user ${userId}:`, error)
+      }
+    }
+  }
+  
+  // Get vote counts for all posts
+  const postIds = data.map(post => post.id)
+  const voteCounts = await getVoteCountsForPosts(postIds)
+  
+  return mapRowsToPosts(data, profileMap, voteCounts)
 }
 
 export async function createPost(payload: NewPostPayload) {
@@ -341,12 +339,13 @@ export async function createPost(payload: NewPostPayload) {
 
 // ---------------------------------------------------------------------------
 
-function mapRowsToPosts(rows: any[], profileMap: Map<string, any>, likeCounts: Map<number, number>): Post[] {
-  return rows.map(row => mapRowToPost(row, profileMap, likeCounts))
+function mapRowsToPosts(rows: any[], profileMap: Map<string, any>, voteCounts: Map<number, VoteData>): Post[] {
+  return rows.map(row => mapRowToPost(row, profileMap, voteCounts))
 }
 
-function mapRowToPost(row: any, profileMap: Map<string, any>, likeCounts: Map<number, number>): Post {
+function mapRowToPost(row: any, profileMap: Map<string, any>, voteCounts: Map<number, VoteData>): Post {
   const profile = profileMap.get(row.user_id)
+  const voteData = voteCounts.get(row.id)
   
   // Provide better fallbacks for missing profile data
   const fallbackUsername = profile?.username || `user_${row.user_id?.slice(-8) || 'unknown'}`
@@ -366,7 +365,7 @@ function mapRowToPost(row: any, profileMap: Map<string, any>, likeCounts: Map<nu
     title: row.title ?? '',
     description: row.description ?? '',
     tags: row.tags ?? [],
-    likes: likeCounts.get(row.id) || 0,
+    likes: voteData?.score || 0, // Now represents net score (upvotes - downvotes)
     comments: 0,
     createdAt: row.created_at ?? '',
   }
@@ -404,47 +403,69 @@ export async function deletePost(postId: number): Promise<boolean> {
   return true
 }
 
-export async function togglePostLike(postId: number): Promise<{ isLiked: boolean; likeCount: number }> {
+// Enhanced vote function that supports both upvotes and downvotes
+export async function togglePostVote(postId: number, voteType: 'up' | 'down'): Promise<{ 
+  userVote: 'up' | 'down' | null; 
+  voteData: VoteData 
+}> {
   const supabase = createSupabaseClient()
   const user = (await supabase.auth.getUser()).data.user
   if (!user) throw new Error('Not authenticated')
 
-  // Check if user already liked this post
-  const { data: existingLike } = await supabase
+  // Check if user already voted on this post
+  const { data: existingVote } = await supabase
     .from('post_likes')
-    .select('id')
+    .select('vote_type')
     .eq('post_id', postId)
     .eq('user_id', user.id)
     .single()
 
-  let isLiked: boolean
+  let newVoteType: 'up' | 'down' | null = null
 
-  if (existingLike) {
-    // Unlike the post
-    await supabase
-      .from('post_likes')
-      .delete()
-      .eq('post_id', postId)
-      .eq('user_id', user.id)
-    isLiked = false
+  if (existingVote) {
+    if (existingVote.vote_type === voteType) {
+      // Remove vote if clicking the same vote type
+      await supabase
+        .from('post_likes')
+        .delete()
+        .eq('post_id', postId)
+        .eq('user_id', user.id)
+      newVoteType = null
+    } else {
+      // Update vote type if clicking different vote type
+      await supabase
+        .from('post_likes')
+        .update({ vote_type: voteType })
+        .eq('post_id', postId)
+        .eq('user_id', user.id)
+      newVoteType = voteType
+    }
   } else {
-    // Like the post
+    // Create new vote
     await supabase
       .from('post_likes')
       .insert({
         post_id: postId,
-        user_id: user.id
+        user_id: user.id,
+        vote_type: voteType
       })
-    isLiked = true
+    newVoteType = voteType
   }
 
-  // Get updated like count
-  const { count } = await supabase
-    .from('post_likes')
-    .select('*', { count: 'exact', head: true })
-    .eq('post_id', postId)
+  // Get updated vote counts
+  const voteCounts = await getVoteCountsForPosts([postId])
+  const voteData = voteCounts.get(postId) || { upvotes: 0, downvotes: 0, score: 0 }
 
-  return { isLiked, likeCount: count || 0 }
+  return { userVote: newVoteType, voteData }
+}
+
+// Legacy function for backwards compatibility
+export async function togglePostLike(postId: number): Promise<{ isLiked: boolean; likeCount: number }> {
+  const result = await togglePostVote(postId, 'up')
+  return { 
+    isLiked: result.userVote === 'up', 
+    likeCount: Math.max(0, result.voteData.score) // Ensure non-negative for backwards compatibility
+  }
 }
 
 export async function checkUserLikedPost(postId: number): Promise<boolean> {
@@ -454,9 +475,10 @@ export async function checkUserLikedPost(postId: number): Promise<boolean> {
 
   const { data } = await supabase
     .from('post_likes')
-    .select('id')
+    .select('vote_type')
     .eq('post_id', postId)
     .eq('user_id', user.id)
+    .eq('vote_type', 'up')
     .single()
 
   return !!data

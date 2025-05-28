@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { fetchPostsByLocation, getUserLikedPosts, togglePostLike } from '@/lib/db/posts'
+import { fetchPostsByLocation, getUserLikedPosts, togglePostVote } from '@/lib/db/posts'
 import { fetchLocationById } from '@/lib/db/locations'
 import type { ExtendedLocation } from '@/lib/data/models/location'
 import type { Post } from '@/lib/data/models/post'
@@ -106,25 +106,20 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
   const handleVote = async (postId: number, direction: "up" | "down") => {
     if (!isMounted) return
 
-    if (direction !== 'up') {
-      // Down vote currently acts as a no-op for persistence.
-      return
-    }
-
     try {
-      const { isLiked, likeCount } = await togglePostLike(postId)
+      const { userVote, voteData } = await togglePostVote(postId, direction)
 
       // Update UI state
       setVotedPosts(prev => ({
         ...prev,
-        [postId]: isLiked ? 'up' : null,
+        [postId]: userVote,
       }))
       setPostLikes(prev => ({
         ...prev,
-        [postId]: likeCount,
+        [postId]: voteData.score,
       }))
     } catch (err) {
-      console.error('Failed to toggle like', err)
+      console.error('Failed to toggle vote', err)
     }
   }
 
