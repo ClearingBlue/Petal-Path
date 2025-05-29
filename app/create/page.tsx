@@ -259,34 +259,44 @@ export default function CreatePost() {
     // Validate form
     if (!formData.description.trim()) {
       toast({
-        title: "Please enter a description",
+        title: "Description required",
+        description: "Please add a description to your post",
         variant: "destructive",
       });
       return;
     }
 
-    if (imageFiles.length === 0) {
+    if (!selectedLocationId) {
       toast({
-        title: "Please add at least one photo",
+        title: "Location required", 
+        description: "Please select a location for your post",
         variant: "destructive",
       });
       return;
     }
 
-    if (!formData.location) {
-      toast({
-        title: "Please select a location",
-        variant: "destructive",
-      });
-      return;
-    }
-
+    setIsSubmitting(true);
+    
     try {
-      setIsSubmitting(true);
+      // Upload images and get URLs
+      const imageUrls: string[] = []
       
-      // In a real app, we would upload the images to a storage service
-      // For demo purposes, we'll use the preview URLs
-      const imageUrls = imagePreviews;
+      for (const file of imageFiles) {
+        try {
+          // Create a data URL from the file for now
+          // In a real app, you would upload to your storage service here
+          const reader = new FileReader()
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string)
+            reader.onerror = () => reject(reader.error)
+            reader.readAsDataURL(file)
+          })
+          imageUrls.push(dataUrl)
+        } catch (uploadError) {
+          console.error('Failed to process image:', uploadError)
+          // Continue with other images even if one fails
+        }
+      }
       
       // Create new post - generate title from first few words of description
       const generatedTitle = formData.description.split(' ').slice(0, 3).join(' ') + '...';
@@ -301,7 +311,7 @@ export default function CreatePost() {
         description: formData.description,
         locationId: selectedLocationId,
         tags: formData.tags,
-        imageFiles: imageFiles,
+        images: imageUrls,
       })
       
       toast({

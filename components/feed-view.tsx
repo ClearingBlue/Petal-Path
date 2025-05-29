@@ -2,13 +2,20 @@
 
 import { useState, useEffect, useCallback, memo } from "react"
 import { useRouter } from "next/navigation"
-import { MessageCircle, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
+import { MessageCircle, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
-import { fetchPosts, togglePostVote, getUserVotes } from '@/lib/db/posts'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { fetchPosts, togglePostVote, getUserVotes, type FeedType } from '@/lib/db/posts'
 import { fetchCurrentUserProfile } from '@/lib/db/profiles'
+import { toggleLocationSave, getUserSavedLocations } from '@/lib/db/user-locations'
 
 const PostCard = memo(({ 
   post, 
@@ -18,10 +25,12 @@ const PostCard = memo(({
   onImageNavigation, 
   onImageError,
   onAvatarClick,
+  onLocationSave,
   userVotes,
   postScores,
   currentImageIndices,
-  imageError 
+  imageError,
+  savedLocations 
 }: {
   post: any;
   onVote: (postId: number, direction: "up" | "down", e: React.MouseEvent) => void;
@@ -30,10 +39,12 @@ const PostCard = memo(({
   onImageNavigation: (postId: number, direction: "prev" | "next", e: React.MouseEvent) => void;
   onImageError: (postId: number, imageIndex: number) => void;
   onAvatarClick: (userId: string) => void;
+  onLocationSave: (locationId: number, e: React.MouseEvent) => void;
   userVotes: Record<number, "up" | "down" | null>;
   postScores: Record<number, number>;
   currentImageIndices: Record<number, number>;
   imageError: Record<string, boolean>;
+  savedLocations: Set<number>;
 }) => {
   const router = useRouter();
   const currentIndex = currentImageIndices[post.id] ?? 0;
@@ -132,9 +143,9 @@ const PostCard = memo(({
           )}
         </div>
         <div className="p-4 space-y-2">
-          <div className="flex items-center mb-2">
+          <div className="flex items-center justify-between mb-2">
             <span 
-              className="flex items-center gap-2 cursor-pointer" 
+              className="flex items-center gap-2 cursor-pointer flex-1" 
               onClick={(e) => {
                 e.stopPropagation();
                 const locationId = getLocationIdByName(post.location);
@@ -144,6 +155,14 @@ const PostCard = memo(({
               <MapPin className="h-5 w-5 text-rose-500" />
               <span className="text-lg font-semibold text-foreground">{post.location}</span>
             </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-8 w-8 p-0 ml-2 ${savedLocations.has(post.locationId) ? "text-pink-500" : "text-gray-400"}`}
+              onClick={(e) => onLocationSave(post.locationId, e)}
+            >
+              <Bookmark className={`h-4 w-4 ${savedLocations.has(post.locationId) ? "fill-current" : ""}`} />
+            </Button>
           </div>
           {post.description && <p className="text-sm text-muted-foreground">{post.description}</p>}
           <div className="flex flex-wrap gap-1">
@@ -199,46 +218,73 @@ export default function FeedView() {
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
   const [currentImageIndices, setCurrentImageIndices] = useState<Record<number, number>>({})
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [feedType, setFeedType] = useState<FeedType>('hot')
+  const [isLoading, setIsLoading] = useState(false)
+  const [savedLocations, setSavedLocations] = useState<Set<number>>(new Set())
+
+  const loadPosts = useCallback(async (type: FeedType) => {
+    setIsLoading(true)
+    try {
+      const [data, currentUser] = await Promise.all([
+        fetchPosts(type),
+        fetchCurrentUserProfile()
+      ])
+      
+      setPosts(data)
+      setCurrentUserId(currentUser?.id || null)
+      
+      // Get user votes for all posts
+      const postIds = data.map(post => post.id)
+      const userVotesMap = await getUserVotes(postIds)
+      
+      // Get user saved locations for all posts
+      const locationIds = data.map(post => post.locationId).filter(Boolean)
+      const savedLocationsSet = await getUserSavedLocations(locationIds)
+      setSavedLocations(savedLocationsSet)
+      
+      // Initialize post scores and image indices
+      const initialScores: Record<number, number> = {};
+      const initialIndices: Record<number, number> = {};
+      const initialVotes: Record<number, "up" | "down" | null> = {};
+      
+      data.forEach(post => {
+        initialScores[post.id] = post.likes; // This is now the net score
+        if (post.images.length > 0) {
+          initialIndices[post.id] = 0;
+        }
+        // Set initial vote state based on user's votes
+        initialVotes[post.id] = userVotesMap.get(post.id) || null;
+      });
+      
+      setPostScores(initialScores);
+      setCurrentImageIndices(initialIndices);
+      setUserVotes(initialVotes);
+    } catch (e) {
+      console.error('Failed to load posts', e)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     setIsMounted(true)
-    async function load() {
-      try {
-        const [data, currentUser] = await Promise.all([
-          fetchPosts(),
-          fetchCurrentUserProfile()
-        ])
-        
-        setPosts(data)
-        setCurrentUserId(currentUser?.id || null)
-        
-        // Get user votes for all posts
-        const postIds = data.map(post => post.id)
-        const userVotesMap = await getUserVotes(postIds)
-        
-        // Initialize post scores and image indices
-        const initialScores: Record<number, number> = {};
-        const initialIndices: Record<number, number> = {};
-        const initialVotes: Record<number, "up" | "down" | null> = {};
-        
-        data.forEach(post => {
-          initialScores[post.id] = post.likes; // This is now the net score
-          if (post.images.length > 0) {
-            initialIndices[post.id] = 0;
-          }
-          // Set initial vote state based on user's votes
-          initialVotes[post.id] = userVotesMap.get(post.id) || null;
-        });
-        
-        setPostScores(initialScores);
-        setCurrentImageIndices(initialIndices);
-        setUserVotes(initialVotes);
-      } catch (e) {
-        console.error('Failed to load posts', e)
-      }
+    loadPosts(feedType)
+  }, [loadPosts, feedType])
+
+  const handleFeedTypeChange = useCallback((newFeedType: FeedType) => {
+    if (newFeedType !== feedType) {
+      setFeedType(newFeedType)
     }
-    load()
-  }, [])
+  }, [feedType])
+
+  const getFeedTypeLabel = (type: FeedType) => {
+    switch (type) {
+      case 'new': return 'New'
+      case 'hot': return 'Hot'  
+      case 'follow': return 'Following'
+      default: return 'Hot'
+    }
+  }
 
   const handlePostClick = useCallback((postId: number) => {
     if (!isMounted) return;
@@ -312,10 +358,99 @@ export default function FeedView() {
     }
   }, [isMounted, router, currentUserId])
 
+  const handleLocationSave = useCallback(async (locationId: number, e: React.MouseEvent) => {
+    if (!isMounted) return;
+    e.stopPropagation();
+
+    try {
+      const { isSaved } = await toggleLocationSave(locationId)
+      
+      // Update UI state
+      setSavedLocations(prev => {
+        const newSet = new Set(prev)
+        if (isSaved) {
+          newSet.add(locationId)
+        } else {
+          newSet.delete(locationId)
+        }
+        return newSet
+      })
+    } catch (err) {
+      console.error('Failed to toggle location save', err)
+    }
+  }, [isMounted])
+
   return (
     <div className="flex-1 overflow-auto pb-20">
-      <div className="container max-w-md mx-auto py-4 space-y-4">
-        {posts.map((post, postIndex) => (
+      <div className="container max-w-md mx-auto py-2 space-y-4">
+        {/* Feed Type Selector - Tab Layout */}
+        <div className="flex justify-center pt-2">
+          <div className="flex bg-white dark:bg-gray-900 rounded-lg p-1 shadow-sm border border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => handleFeedTypeChange('hot')}
+              className={`relative px-6 py-2 text-sm font-medium transition-all duration-200 rounded-md ${
+                feedType === 'hot'
+                  ? 'text-black dark:text-white'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Hot
+              {feedType === 'hot' && (
+                <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-8 h-0.5 bg-pink-500 rounded-full"></div>
+              )}
+            </button>
+            <button
+              onClick={() => handleFeedTypeChange('new')}
+              className={`relative px-6 py-2 text-sm font-medium transition-all duration-200 rounded-md ${
+                feedType === 'new'
+                  ? 'text-black dark:text-white'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              New
+              {feedType === 'new' && (
+                <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-8 h-0.5 bg-pink-500 rounded-full"></div>
+              )}
+            </button>
+            <button
+              onClick={() => handleFeedTypeChange('follow')}
+              className={`relative px-6 py-2 text-sm font-medium transition-all duration-200 rounded-md ${
+                feedType === 'follow'
+                  ? 'text-black dark:text-white'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Following
+              {feedType === 'follow' && (
+                <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-12 h-0.5 bg-pink-500 rounded-full"></div>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex justify-center py-8">
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 animate-pulse"></div>
+              <div className="text-pink-600 dark:text-pink-400 font-medium">Loading posts...</div>
+            </div>
+          </div>
+        )}
+
+        {/* Empty State for Following */}
+        {!isLoading && feedType === 'follow' && posts.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-r from-pink-100 to-rose-100 dark:from-pink-900/50 dark:to-rose-900/50 flex items-center justify-center mb-4">
+              <span className="text-2xl">👥</span>
+            </div>
+            <div className="text-pink-600 dark:text-pink-400 mb-2 font-medium">No posts from people you follow</div>
+            <div className="text-sm text-pink-500 dark:text-pink-500">Start following users to see their posts here!</div>
+          </div>
+        )}
+
+        {/* Posts List */}
+        {!isLoading && posts.map((post, postIndex) => (
           <PostCard
             key={post.id}
             post={post}
@@ -325,10 +460,12 @@ export default function FeedView() {
             onImageNavigation={handleImageNavigation}
             onImageError={handleImageError}
             onAvatarClick={handleAvatarClick}
+            onLocationSave={handleLocationSave}
             userVotes={userVotes}
             postScores={postScores}
             currentImageIndices={currentImageIndices}
             imageError={imageError}
+            savedLocations={savedLocations}
           />
         ))}
       </div>

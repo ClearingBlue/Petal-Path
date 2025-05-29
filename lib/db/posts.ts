@@ -1,12 +1,23 @@
 import { createSupabaseClient } from '@/lib/supabase'
-import type { Post } from '@/lib/data/models/post'
+import { fetchProfileById } from './profiles'
 
-export interface NewPostPayload {
-  readonly title: string
-  readonly description: string
-  readonly locationId: number
-  readonly tags: string[]
-  readonly imageFiles: File[] // browser File objects
+export interface Post {
+  id: number
+  user: {
+    id: string
+    name: string
+    username: string
+    avatar: string
+  }
+  location: string
+  locationId: number
+  images: string[]
+  title: string
+  description: string
+  tags: string[]
+  likes: number
+  comments: number
+  createdAt: string
 }
 
 export interface VoteData {
@@ -15,42 +26,131 @@ export interface VoteData {
   score: number
 }
 
+export interface EnhancedRankingData {
+  voteScore: number
+  commentScore: number
+  totalBaseScore: number
+  rankingScore: number
+  timeDecayFactor: number
+}
+
 export interface UserVote {
   postId: number
   voteType: 'up' | 'down' | null
 }
 
-export async function fetchPosts(): Promise<Post[]> {
+export type FeedType = 'new' | 'hot' | 'follow'
+
+export async function fetchPosts(feedType: FeedType = 'hot'): Promise<Post[]> {
+  switch (feedType) {
+    case 'new':
+      return await fetchPostsChronological()
+    case 'hot':
+      return await fetchPostsRanked()
+    case 'follow':
+      return await fetchPostsFromFollowedUsers()
+    default:
+      return await fetchPostsRanked()
+  }
+}
+
+async function fetchPostsChronological(): Promise<Post[]> {
   const supabase = createSupabaseClient()
   
-  // Use the new ranked feed function for better post ordering
+  const { data, error } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      title,
+      description,
+      tags,
+      created_at,
+      user_id,
+      locations(id,name),
+      post_images(url)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  
+  if (error) throw new Error(error.message)
+  return await processPostsData(data ?? [])
+}
+
+async function fetchPostsRanked(): Promise<Post[]> {
+  const supabase = createSupabaseClient()
+  
+  // Use the enhanced ranked feed for better post ordering
   const { data: rankedData, error: rankedError } = await supabase
-    .rpc('get_ranked_feed', { limit_count: 50 })
+    .rpc('get_enhanced_ranked_feed', { limit_count: 50 })
   
   if (rankedError) {
-    console.error('Error fetching ranked feed, falling back to chronological:', rankedError)
-    // Fallback to chronological ordering if ranking fails
-    const { data, error } = await supabase
-      .from('posts')
-      .select(`
-        id,
-        title,
-        description,
-        tags,
-        created_at,
-        user_id,
-        locations(id,name),
-        post_images(url)
-      `)
-      .order('created_at', { ascending: false })
-    if (error) throw new Error(error.message)
-    return await processPostsData(data ?? [])
+    console.error('Error fetching enhanced ranked feed, falling back to basic ranked feed:', rankedError)
+    // Fallback to basic ranking if enhanced fails
+    const { data: basicRankedData, error: basicRankedError } = await supabase
+      .rpc('get_ranked_feed', { limit_count: 50 })
+    
+    if (basicRankedError) {
+      console.error('Error fetching basic ranked feed, falling back to chronological:', basicRankedError)
+      // Fallback to chronological ordering if both ranking methods fail
+      return await fetchPostsChronological()
+    }
+    
+    // Use basic ranked data
+    const postIds = basicRankedData?.map((p: any) => p.post_id) || []
+    return await fetchPostsByIds(postIds, basicRankedData)
   }
   
-  // Fetch full post data for the ranked posts
+  // Use enhanced ranked data
   const postIds = rankedData?.map((p: any) => p.post_id) || []
+  return await fetchPostsByIds(postIds, rankedData)
+}
+
+async function fetchPostsFromFollowedUsers(): Promise<Post[]> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) return []
+
+  // Get list of users the current user follows
+  const { data: followingData, error: followingError } = await supabase
+    .from('follows')
+    .select('following_id')
+    .eq('follower_id', user.id)
+
+  if (followingError) {
+    console.error('Error fetching following list:', followingError)
+    return []
+  }
+
+  const followingIds = followingData?.map(f => f.following_id) || []
+  
+  // If not following anyone, return empty array
+  if (followingIds.length === 0) return []
+
+  // Fetch posts from followed users
+  const { data, error } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      title,
+      description,
+      tags,
+      created_at,
+      user_id,
+      locations(id,name),
+      post_images(url)
+    `)
+    .in('user_id', followingIds)
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  if (error) throw new Error(error.message)
+  return await processPostsData(data ?? [])
+}
+
+async function fetchPostsByIds(postIds: number[], rankingData: any[]): Promise<Post[]> {
   if (postIds.length === 0) return []
   
+  const supabase = createSupabaseClient()
   const { data, error } = await supabase
     .from('posts')
     .select(`
@@ -68,7 +168,7 @@ export async function fetchPosts(): Promise<Post[]> {
   if (error) throw new Error(error.message)
   
   // Sort the results according to the ranking order
-  const rankingMap = new Map(rankedData?.map((p: any) => [p.post_id, p.ranking_score]) || [])
+  const rankingMap = new Map(rankingData?.map((p: any) => [p.post_id, p.ranking_score]) || [])
   const sortedData = (data ?? []).sort((a, b) => {
     const scoreA = Number(rankingMap.get(a.id)) || 0
     const scoreB = Number(rankingMap.get(b.id)) || 0
@@ -78,9 +178,8 @@ export async function fetchPosts(): Promise<Post[]> {
   return await processPostsData(sortedData)
 }
 
-export async function fetchPostsByUser(userId: string): Promise<Post[]> {
+export async function fetchPostById(id: number): Promise<Post | null> {
   const supabase = createSupabaseClient()
-  
   const { data, error } = await supabase
     .from('posts')
     .select(`
@@ -93,11 +192,16 @@ export async function fetchPostsByUser(userId: string): Promise<Post[]> {
       locations(id,name),
       post_images(url)
     `)
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
+    .eq('id', id)
+    .single()
 
-  if (error) throw new Error(error.message)
-  return await processPostsData(data ?? [])
+  if (error) {
+    if (error.code === 'PGRST116') return null // No rows returned
+    throw new Error(error.message)
+  }
+
+  const posts = await processPostsData([data])
+  return posts[0] || null
 }
 
 export async function fetchPostsByLocation(locationId: number): Promise<Post[]> {
@@ -116,6 +220,7 @@ export async function fetchPostsByLocation(locationId: number): Promise<Post[]> 
     `)
     .eq('location_id', locationId)
     .order('created_at', { ascending: false })
+
   if (error) throw new Error(error.message)
   return await processPostsData(data ?? [])
 }
@@ -137,47 +242,125 @@ export async function fetchTopPostsByLocation(locationId: number, limit: number 
       post_images(url)
     `)
     .eq('location_id', locationId)
-  
+
   if (error) throw new Error(error.message)
-  
-  // Get vote counts for all posts
+
+  // Get enhanced ranking data for all posts
   const postIds = data?.map(post => post.id) || []
-  const voteCounts = await getVoteCountsForPosts(postIds)
-  
-  // Sort by score and take top posts
+  const enhancedRankingData = await getEnhancedRankingForPosts(postIds)
+
+  // Sort by enhanced ranking score and take top posts
   const postsWithScores = (data ?? []).map(post => ({
     ...post,
-    score: voteCounts.get(post.id)?.score || 0
-  })).sort((a, b) => b.score - a.score).slice(0, limit)
-  
+    rankingScore: enhancedRankingData.get(post.id)?.rankingScore || 0
+  })).sort((a, b) => b.rankingScore - a.rankingScore).slice(0, limit)
+
   return await processPostsData(postsWithScores)
 }
 
-export async function fetchPostById(id: number): Promise<Post | null> {
+export async function createPost(data: {
+  title: string;
+  description: string;
+  tags: string[];
+  locationId: number;
+  images: string[];
+}): Promise<Post> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) throw new Error('Not authenticated')
+
+  // Ensure images is always an array
+  const images = data.images || []
+
+  const { data: post, error } = await supabase
+    .from('posts')
+    .insert({
+      title: data.title,
+      description: data.description,
+      tags: data.tags,
+      location_id: data.locationId,
+      user_id: user.id
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  // Insert images if any
+  if (images.length > 0) {
+    const imageInserts = images.map(url => ({
+      post_id: post.id,
+      url
+    }))
+
+    const { error: imageError } = await supabase
+      .from('post_images')
+      .insert(imageInserts)
+
+    if (imageError) throw new Error(imageError.message)
+  }
+
+  // Increment location visit count when posting to this location
+  try {
+    const { incrementLocationVisit } = await import('@/lib/db/user-locations')
+    await incrementLocationVisit(data.locationId)
+  } catch (error) {
+    // Don't fail the post creation if visit tracking fails
+    console.error('Failed to increment location visit:', error)
+  }
+
+  return await fetchPostById(post.id) as Post
+}
+
+export async function deletePost(postId: number): Promise<void> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) throw new Error('Not authenticated')
+
+  // Check if user owns the post
+  const { data: post } = await supabase
+    .from('posts')
+    .select('user_id')
+    .eq('id', postId)
+    .single()
+
+  if (!post || post.user_id !== user.id) {
+    throw new Error('Not authorized to delete this post')
+  }
+
+  const { error } = await supabase
+    .from('posts')
+    .delete()
+    .eq('id', postId)
+
+  if (error) throw new Error(error.message)
+}
+
+// Enhanced helper function to get enhanced ranking data for multiple posts
+async function getEnhancedRankingForPosts(postIds: number[]): Promise<Map<number, EnhancedRankingData>> {
+  if (postIds.length === 0) return new Map()
+  
   const supabase = createSupabaseClient()
   const { data, error } = await supabase
-    .from('posts')
-    .select(`
-      id,
-      title,
-      description,
-      tags,
-      created_at,
-      user_id,
-      locations(id,name),
-      post_images(url)
-    `)
-    .eq('id', id)
-    .single()
+    .rpc('get_enhanced_post_rankings', { post_ids: postIds })
+  
   if (error) {
-    if (error.code === 'PGRST116') return null
-    throw new Error(error.message)
+    console.error('Error fetching enhanced ranking data:', error)
+    return new Map()
   }
   
-  if (!data) return null
+  const rankingMap = new Map<number, EnhancedRankingData>()
+  data?.forEach((ranking: any) => {
+    rankingMap.set(ranking.post_id, {
+      voteScore: ranking.vote_score,
+      commentScore: ranking.comment_score,
+      totalBaseScore: ranking.total_base_score,
+      rankingScore: ranking.ranking_score,
+      timeDecayFactor: ranking.time_decay_factor
+    })
+  })
   
-  const posts = await processPostsData([data])
-  return posts[0] || null
+  return rankingMap
 }
 
 // Enhanced helper function to get vote counts for multiple posts
@@ -252,10 +435,9 @@ export async function getUserLikedPosts(): Promise<Set<number>> {
   return new Set(data?.map(like => like.post_id) || [])
 }
 
-// Common processing function for all post data
 async function processPostsData(data: any[]): Promise<Post[]> {
-  if (data.length === 0) return []
-  
+  if (!data.length) return []
+
   // Get unique user IDs
   const userIds = [...new Set(data.map(post => post.user_id).filter(Boolean))]
   
@@ -268,12 +450,11 @@ async function processPostsData(data: any[]): Promise<Post[]> {
   
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
-  
-  // For any missing profiles, try to fetch them individually
+
+  // For any missing profiles, try to fetch them individually (this will create them if needed)
   const missingUserIds = userIds.filter(id => !profileMap.has(id))
   if (missingUserIds.length > 0) {
     console.log(`Found ${missingUserIds.length} users without profiles, attempting to resolve`)
-    const { fetchProfileById } = await import('./profiles')
     
     for (const userId of missingUserIds) {
       try {
@@ -286,66 +467,26 @@ async function processPostsData(data: any[]): Promise<Post[]> {
       }
     }
   }
-  
-  // Get vote counts for all posts
+
+  // Get post IDs and fetch enhanced ranking data and vote counts
   const postIds = data.map(post => post.id)
-  const voteCounts = await getVoteCountsForPosts(postIds)
-  
-  return mapRowsToPosts(data, profileMap, voteCounts)
+  const [enhancedRankingData, voteCounts] = await Promise.all([
+    getEnhancedRankingForPosts(postIds),
+    getVoteCountsForPosts(postIds)
+  ])
+
+  return data.map(row => mapRowToPost(row, profileMap, voteCounts, enhancedRankingData))
 }
 
-export async function createPost(payload: NewPostPayload) {
-  const supabase = createSupabaseClient()
-  const user = (await supabase.auth.getUser()).data.user
-  if (!user) throw new Error('Not authenticated')
-
-  // 1. insert post (without images) to get id
-  const { data: postRow, error: insertErr } = await supabase
-    .from('posts')
-    .insert({
-      user_id: user.id,
-      location_id: payload.locationId,
-      title: payload.title,
-      description: payload.description,
-      tags: payload.tags,
-    })
-    .select('*')
-    .single()
-
-  if (insertErr) throw new Error(insertErr.message)
-
-  // 2. upload images and insert post_images rows
-  const bucket = supabase.storage.from('posts')
-  const imageUrls: string[] = []
-  for (const file of payload.imageFiles) {
-    const path = `${user.id}/${postRow.id}/${crypto.randomUUID()}`
-    const { error: uploadErr } = await bucket.upload(path, file, { upsert: false })
-    if (uploadErr) {
-      console.error('Bucket upload error:', uploadErr)
-      throw new Error(`Upload failed: ${uploadErr.message}`)
-    }
-    const { data } = bucket.getPublicUrl(path)
-    imageUrls.push(data.publicUrl)
-  }
-
-  if (imageUrls.length) {
-    const insertImageRows = imageUrls.map((url) => ({ post_id: postRow.id, url }))
-    const { error: imgErr } = await supabase.from('post_images').insert(insertImageRows)
-    if (imgErr) throw new Error(imgErr.message)
-  }
-
-  return postRow.id as number
-}
-
-// ---------------------------------------------------------------------------
-
-function mapRowsToPosts(rows: any[], profileMap: Map<string, any>, voteCounts: Map<number, VoteData>): Post[] {
-  return rows.map(row => mapRowToPost(row, profileMap, voteCounts))
-}
-
-function mapRowToPost(row: any, profileMap: Map<string, any>, voteCounts: Map<number, VoteData>): Post {
+function mapRowToPost(
+  row: any, 
+  profileMap: Map<string, any>, 
+  voteCounts: Map<number, VoteData>,
+  enhancedRankingData?: Map<number, EnhancedRankingData>
+): Post {
   const profile = profileMap.get(row.user_id)
   const voteData = voteCounts.get(row.id)
+  const enhancedData = enhancedRankingData?.get(row.id)
   
   // Provide better fallbacks for missing profile data
   const fallbackUsername = profile?.username || `user_${row.user_id?.slice(-8) || 'unknown'}`
@@ -354,7 +495,7 @@ function mapRowToPost(row: any, profileMap: Map<string, any>, voteCounts: Map<nu
   return {
     id: row.id,
     user: {
-      id: row.user_id ?? 0,
+      id: row.user_id ?? '0',
       name: fallbackName,
       username: fallbackUsername,
       avatar: profile?.avatar_url || '',
@@ -365,42 +506,10 @@ function mapRowToPost(row: any, profileMap: Map<string, any>, voteCounts: Map<nu
     title: row.title ?? '',
     description: row.description ?? '',
     tags: row.tags ?? [],
-    likes: voteData?.score || 0, // Now represents net score (upvotes - downvotes)
-    comments: 0,
+    likes: voteData?.score || 0, // Net score (upvotes - downvotes)
+    comments: Math.floor((enhancedData?.commentScore || 0) / 2), // Convert back from points to count
     createdAt: row.created_at ?? '',
   }
-}
-
-export async function deletePost(postId: number): Promise<boolean> {
-  const supabase = createSupabaseClient()
-  const user = (await supabase.auth.getUser()).data.user
-  if (!user) throw new Error('Not authenticated')
-
-  // Check if user owns the post
-  const { data: post } = await supabase
-    .from('posts')
-    .select('user_id')
-    .eq('id', postId)
-    .single()
-
-  if (!post || post.user_id !== user.id) {
-    throw new Error('Not authorized to delete this post')
-  }
-
-  // Delete post images first (due to foreign key constraint)
-  await supabase
-    .from('post_images')
-    .delete()
-    .eq('post_id', postId)
-
-  // Delete the post
-  const { error } = await supabase
-    .from('posts')
-    .delete()
-    .eq('id', postId)
-
-  if (error) throw new Error(error.message)
-  return true
 }
 
 // Enhanced vote function that supports both upvotes and downvotes
@@ -468,18 +577,24 @@ export async function togglePostLike(postId: number): Promise<{ isLiked: boolean
   }
 }
 
-export async function checkUserLikedPost(postId: number): Promise<boolean> {
+export async function fetchPostsByUser(userId: string): Promise<Post[]> {
   const supabase = createSupabaseClient()
-  const user = (await supabase.auth.getUser()).data.user
-  if (!user) return false
+  
+  const { data, error } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      title,
+      description,
+      tags,
+      created_at,
+      user_id,
+      locations(id,name),
+      post_images(url)
+    `)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
 
-  const { data } = await supabase
-    .from('post_likes')
-    .select('vote_type')
-    .eq('post_id', postId)
-    .eq('user_id', user.id)
-    .eq('vote_type', 'up')
-    .single()
-
-  return !!data
+  if (error) throw new Error(error.message)
+  return await processPostsData(data ?? [])
 } 

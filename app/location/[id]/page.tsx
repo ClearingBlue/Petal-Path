@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 import React, { use, useState, useEffect } from "react"
-import { ArrowLeft, MapPin, ChevronUp, ChevronDown, MessageCircle } from "lucide-react"
+import { ArrowLeft, MapPin, ChevronUp, ChevronDown, MessageCircle, Bookmark } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -13,6 +13,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { fetchPostsByLocation, getUserLikedPosts, togglePostVote } from '@/lib/db/posts'
 import { fetchLocationById } from '@/lib/db/locations'
+import { toggleLocationSave, checkLocationSaved } from '@/lib/db/user-locations'
 import type { ExtendedLocation } from '@/lib/data/models/location'
 import type { Post } from '@/lib/data/models/post'
 import dynamic from "next/dynamic"
@@ -39,6 +40,7 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
   const [votedPosts, setVotedPosts] = useState<Record<number, "up" | "down" | null>>({})
   const [postLikes, setPostLikes] = useState<Record<number, number>>({})
   const [isMounted, setIsMounted] = useState(false)
+  const [isLocationSaved, setIsLocationSaved] = useState(false)
 
   // Fetch location and posts data
   useEffect(() => {
@@ -46,15 +48,17 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
       setIsLoading(true)
       try {
         // Get location data and user's liked posts in parallel
-        const [locationData, userLikedPosts] = await Promise.all([
+        const [locationData, userLikedPosts, locationSaved] = await Promise.all([
           fetchLocationById(locationId),
-          getUserLikedPosts()
+          getUserLikedPosts(),
+          checkLocationSaved(locationId)
         ])
         
         if (!locationData) {
           return
         }
         setLocation(locationData)
+        setIsLocationSaved(locationSaved)
         
         // Get posts data
         const locationPosts = await fetchPostsByLocation(locationId)
@@ -84,6 +88,17 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
     fetchData()
     setIsMounted(true)
   }, [locationId]) // Only re-run if locationId changes
+
+  const handleLocationSave = async () => {
+    if (!isMounted) return;
+
+    try {
+      const { isSaved } = await toggleLocationSave(locationId)
+      setIsLocationSaved(isSaved)
+    } catch (err) {
+      console.error('Failed to toggle location save', err)
+    }
+  }
 
   if (isLoading || !location) {
     return (
@@ -133,7 +148,15 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
               <span className="sr-only">Back</span>
             </Link>
           </Button>
-          <span className="text-lg font-semibold">{location.name}</span>
+          <span className="text-lg font-semibold flex-1">{location.name}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`${isLocationSaved ? "text-pink-500" : "text-gray-400"}`}
+            onClick={handleLocationSave}
+          >
+            <Bookmark className={`h-5 w-5 ${isLocationSaved ? "fill-current" : ""}`} />
+          </Button>
         </div>
       </header>
       <div className="flex-1 pb-16">

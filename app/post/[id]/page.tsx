@@ -4,14 +4,14 @@ import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import React, { use } from "react"
-import { ArrowLeft, Heart, MessageCircle, MapPin, MoreHorizontal, Trash2, ChevronUp } from "lucide-react"
+import { ArrowLeft, Heart, MessageCircle, MapPin, MoreHorizontal, Trash2, ChevronUp, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { fetchPostById, deletePost, togglePostLike, checkUserLikedPost } from "@/lib/db/posts"
-import { fetchCommentsByPost, createComment, deleteComment, type Comment } from "@/lib/db/comments"
+import { fetchPostById, deletePost, togglePostVote, getUserVotes } from "@/lib/db/posts"
+import { fetchCommentsByPost, createComment, deleteComment, toggleCommentLike, getUserLikedComments, type Comment } from "@/lib/db/comments"
 import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
 import type { Post } from "@/lib/data/models/post"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -34,8 +34,8 @@ export default function PostDetail({ params }: { params: { id: string } }) {
   const postId = Number.parseInt(unwrappedParams.id)
   const [post, setPost] = useState<Post | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
-  const [isLiked, setIsLiked] = useState(false)
-  const [likeCount, setLikeCount] = useState(0)
+  const [userVote, setUserVote] = useState<'up' | 'down' | null>(null)
+  const [postScore, setPostScore] = useState(0)
   const [newComment, setNewComment] = useState("")
   const [currentUser, setCurrentUser] = useState<Profile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -63,15 +63,23 @@ export default function PostDetail({ params }: { params: { id: string } }) {
         setComments(commentsData)
         setCurrentUser(userData)
         
-        // Set initial like count and check if user liked the post
+        // Set initial post score and check user's vote
         if (postData) {
-          setLikeCount(postData.likes)
+          setPostScore(postData.likes)
           
-          // Check if current user has liked this post
+          // Check if current user has voted on this post
           if (userData) {
-            const userLiked = await checkUserLikedPost(postId)
-            setIsLiked(userLiked)
+            const userVotesMap = await getUserVotes([postId])
+            const vote = userVotesMap.get(postId) || null
+            setUserVote(vote)
           }
+        }
+        
+        // Load user's liked comments
+        if (commentsData.length > 0 && userData) {
+          const commentIds = commentsData.map(c => c.id)
+          const likedCommentIds = await getUserLikedComments(commentIds)
+          setLikedComments(likedCommentIds)
         }
         
         // Check if current user is post owner
@@ -124,18 +132,18 @@ export default function PostDetail({ params }: { params: { id: string } }) {
     }
   }
 
-  const handleLike = async () => {
+  const handleVote = async (voteType: 'up' | 'down') => {
     if (!post || !currentUser) return
 
     try {
-      const { isLiked: newIsLiked, likeCount: newLikeCount } = await togglePostLike(postId)
-      setIsLiked(newIsLiked)
-      setLikeCount(newLikeCount)
+      const { userVote: newUserVote, voteData } = await togglePostVote(postId, voteType)
+      setUserVote(newUserVote)
+      setPostScore(voteData.score)
     } catch (error) {
-      console.error('Error toggling like:', error)
+      console.error('Error toggling vote:', error)
       toast({
         title: "Error",
-        description: "Failed to update like. Please try again.",
+        description: "Failed to update vote. Please try again.",
         variant: "destructive",
       })
     }
@@ -185,33 +193,41 @@ export default function PostDetail({ params }: { params: { id: string } }) {
     setCommentToDelete(null)
   }
 
-  const handleLikeComment = (commentId: number) => {
-    // Toggle like status
-    const newLikedComments = new Set(likedComments)
-    const isCurrentlyLiked = newLikedComments.has(commentId);
+  const handleLikeComment = async (commentId: number) => {
+    if (!currentUser) return
 
-    if (isCurrentlyLiked) {
-      newLikedComments.delete(commentId)
-    } else {
-      newLikedComments.add(commentId)
-    }
+    try {
+      const { isLiked, likeCount } = await toggleCommentLike(commentId)
+      
+      // Update liked comments set
+      const newLikedComments = new Set(likedComments)
+      if (isLiked) {
+        newLikedComments.add(commentId)
+      } else {
+        newLikedComments.delete(commentId)
+      }
+      setLikedComments(newLikedComments)
 
-    setLikedComments(newLikedComments)
-
-    // Update comment like count
-    setComments((prev) =>
-      prev.map((comment) => {
-        if (comment.id === commentId) {
-          // 如果之前已点赞，现在取消，则减一；如果之前未点赞，现在点赞，则加一
-          const delta = isCurrentlyLiked ? -1 : 1;
-          return {
-            ...comment,
-            likes: comment.likes + delta,
+      // Update comment like count in the comments array
+      setComments((prev) =>
+        prev.map((comment) => {
+          if (comment.id === commentId) {
+            return {
+              ...comment,
+              likes: likeCount,
+            }
           }
-        }
-        return comment
-      }),
-    )
+          return comment
+        }),
+      )
+    } catch (error) {
+      console.error('Error toggling comment like:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update like. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   const isCommentOwner = (comment: Comment) => {
@@ -412,12 +428,22 @@ export default function PostDetail({ params }: { params: { id: string } }) {
               <Button
                 variant="ghost"
                 size="icon"
-                className={`h-8 w-8 p-0 ${isLiked ? "text-green-500" : ""}`}
-                onClick={handleLike}
+                className={`h-8 w-8 p-0 ${userVote === "up" ? "text-green-500" : ""}`}
+                onClick={() => handleVote('up')}
               >
                 <ChevronUp className="h-4 w-4" />
               </Button>
-              <span className="text-sm font-medium">{likeCount}</span>
+              <span className={`text-sm font-medium ${postScore > 0 ? 'text-green-600' : postScore < 0 ? 'text-red-600' : ''}`}>
+                {postScore}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-8 w-8 p-0 ${userVote === "down" ? "text-red-500" : ""}`}
+                onClick={() => handleVote('down')}
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
             </div>
             <div className="flex items-center gap-2">
               <Button 

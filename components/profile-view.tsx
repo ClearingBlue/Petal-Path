@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Settings, Flower, MapPin, MessageCircle, Inbox } from "lucide-react"
+import { Settings, Flower, MapPin, MessageCircle, Inbox, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
 import { fetchPostsByUser } from "@/lib/db/posts"
-import { fetchUserVisitedLocations } from "@/lib/db/user-locations"
+import { fetchUserVisitedLocations, fetchUserSavedLocations } from "@/lib/db/user-locations"
 import { getUserStats, type UserStats } from "@/lib/db/follows"
 import type { Post } from "@/lib/data/models/post"
 import type { ExtendedLocation } from "@/lib/data/models/location"
@@ -20,6 +20,7 @@ export default function ProfileView() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [userPosts, setUserPosts] = useState<Post[]>([])
   const [visitedLocations, setVisitedLocations] = useState<ExtendedLocation[]>([])
+  const [savedLocations, setSavedLocations] = useState<ExtendedLocation[]>([])
   const [userStats, setUserStats] = useState<UserStats>({ followers_count: 0, following_count: 0, posts_count: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
@@ -33,15 +34,17 @@ export default function ProfileView() {
         const userProfile = await fetchCurrentUserProfile()
         setProfile(userProfile)
         
-        // Load user's posts, visited locations, and stats
+        // Load user's posts, visited locations, saved locations, and stats
         if (userProfile) {
-          const [posts, locations, stats] = await Promise.all([
+          const [posts, locations, saved, stats] = await Promise.all([
             fetchPostsByUser(userProfile.id),
             fetchUserVisitedLocations(userProfile.id),
+            fetchUserSavedLocations(userProfile.id),
             getUserStats(userProfile.id)
           ])
           setUserPosts(posts)
           setVisitedLocations(locations)
+          setSavedLocations(saved)
           setUserStats(stats)
         }
         
@@ -164,12 +167,15 @@ export default function ProfileView() {
         </div>
 
         <Tabs defaultValue="posts">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="posts">
               <Flower className="h-4 w-4" />
             </TabsTrigger>
             <TabsTrigger value="locations">
               <MapPin className="h-4 w-4" />
+            </TabsTrigger>
+            <TabsTrigger value="saved">
+              <Bookmark className="h-4 w-4" />
             </TabsTrigger>
           </TabsList>
           <TabsContent value="posts" className="mt-4">
@@ -233,6 +239,43 @@ export default function ProfileView() {
                   <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p>No locations visited yet</p>
                   <p className="text-xs">Start posting to see your visited locations here!</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+          <TabsContent value="saved" className="mt-4">
+            <div className="space-y-4">
+              {savedLocations.length > 0 ? (
+                savedLocations.map((location: ExtendedLocation) => (
+                  <div
+                    key={location.id}
+                    className="flex items-start gap-3 border-b pb-4 cursor-pointer hover:bg-accent/50 transition-colors p-2 rounded-md"
+                    onClick={() => handleLocationClick(location.id)}
+                  >
+                    <div className="w-16 h-16 bg-muted rounded-md overflow-hidden">
+                      <img
+                        src={location.imageUrl || `/placeholder.svg?height=64&width=64&text=L${location.id}`}
+                        alt={location.name}
+                        className="w-full h-full object-cover"
+                        onError={() => handleImageError(`saved-location-${location.id}`)}
+                      />
+                    </div>
+                    <div>
+                      <div className="font-semibold">{location.name}</div>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        <Badge variant="secondary" className="text-xs">
+                          {location.category}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">Saved location</div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Bookmark className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No saved locations yet</p>
+                  <p className="text-xs">Start bookmarking locations to see them here!</p>
                 </div>
               )}
             </div>

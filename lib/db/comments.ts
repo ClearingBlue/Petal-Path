@@ -62,7 +62,11 @@ export async function fetchCommentsByPost(postId: number): Promise<Comment[]> {
     }
   }
 
-  return (data ?? []).map(row => mapRowToComment(row, profileMap))
+  // Get comment IDs and fetch like counts
+  const commentIds = data?.map(comment => comment.id) || []
+  const likeCounts = await getCommentLikeCounts(commentIds)
+
+  return (data ?? []).map(row => mapRowToComment(row, profileMap, likeCounts))
 }
 
 export async function createComment(postId: number, content: string): Promise<Comment> {
@@ -87,7 +91,8 @@ export async function createComment(postId: number, content: string): Promise<Co
   const profile = await fetchProfileById(user.id)
 
   const profileMap = new Map(profile ? [[profile.id, profile]] : [])
-  return mapRowToComment(data, profileMap)
+  const likeCounts = new Map([[data.id, 0]]) // New comment has 0 likes
+  return mapRowToComment(data, profileMap, likeCounts)
 }
 
 export async function deleteComment(commentId: number): Promise<void> {
@@ -114,7 +119,99 @@ export async function deleteComment(commentId: number): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-function mapRowToComment(row: any, profileMap: Map<string, any>): Comment {
+// Comment like functions - following the same pattern as post likes but simpler
+export async function toggleCommentLike(commentId: number): Promise<{ isLiked: boolean; likeCount: number }> {
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) throw new Error('Not authenticated')
+
+  // Check if user already liked this comment
+  const { data: existingLike } = await supabase
+    .from('comment_likes')
+    .select('id')
+    .eq('comment_id', commentId)
+    .eq('user_id', user.id)
+    .single()
+
+  let isLiked: boolean
+
+  if (existingLike) {
+    // Unlike the comment
+    await supabase
+      .from('comment_likes')
+      .delete()
+      .eq('comment_id', commentId)
+      .eq('user_id', user.id)
+    isLiked = false
+  } else {
+    // Like the comment
+    await supabase
+      .from('comment_likes')
+      .insert({
+        comment_id: commentId,
+        user_id: user.id
+      })
+    isLiked = true
+  }
+
+  // Get updated like count
+  const { count } = await supabase
+    .from('comment_likes')
+    .select('*', { count: 'exact', head: true })
+    .eq('comment_id', commentId)
+
+  return { isLiked, likeCount: count || 0 }
+}
+
+export async function getUserLikedComments(commentIds: number[]): Promise<Set<number>> {
+  if (commentIds.length === 0) return new Set()
+  
+  const supabase = createSupabaseClient()
+  const user = (await supabase.auth.getUser()).data.user
+  if (!user) return new Set()
+
+  const { data, error } = await supabase
+    .from('comment_likes')
+    .select('comment_id')
+    .eq('user_id', user.id)
+    .in('comment_id', commentIds)
+
+  if (error) {
+    console.error('Error fetching user liked comments:', error)
+    return new Set()
+  }
+
+  return new Set(data?.map(like => like.comment_id) || [])
+}
+
+// Helper function to get like counts for multiple comments
+async function getCommentLikeCounts(commentIds: number[]): Promise<Map<number, number>> {
+  if (commentIds.length === 0) return new Map()
+  
+  const supabase = createSupabaseClient()
+  const { data, error } = await supabase
+    .from('comment_likes')
+    .select('comment_id')
+    .in('comment_id', commentIds)
+  
+  if (error) {
+    console.error('Error fetching comment like counts:', error)
+    return new Map()
+  }
+  
+  // Count likes per comment
+  const likeCounts = new Map<number, number>()
+  commentIds.forEach(id => likeCounts.set(id, 0)) // Initialize all to 0
+  
+  data?.forEach(like => {
+    const currentCount = likeCounts.get(like.comment_id) || 0
+    likeCounts.set(like.comment_id, currentCount + 1)
+  })
+  
+  return likeCounts
+}
+
+function mapRowToComment(row: any, profileMap: Map<string, any>, likeCounts: Map<number, number>): Comment {
   const profile = profileMap.get(row.user_id)
   
   // Provide better fallbacks for missing profile data
@@ -132,7 +229,7 @@ function mapRowToComment(row: any, profileMap: Map<string, any>): Comment {
     },
     text: row.content,
     createdAt: row.created_at,
-    likes: 0, // We'll implement comment likes later
+    likes: likeCounts.get(row.id) || 0,
     replies: []
   }
 } 
