@@ -359,6 +359,30 @@ export default function CreatePost() {
       </header>
       
       <div className="container max-w-md mx-auto p-4 space-y-4">
+        {/* Location */}
+        <div className="space-y-2">
+          <Label htmlFor="location">Location</Label>
+          <div className="flex items-center gap-2">
+            <Input 
+              id="location" 
+              name="location"
+              value={formData.location}
+              onChange={handleInputChange}
+              placeholder="Select a location" 
+              readOnly
+              className="cursor-pointer"
+              onClick={() => setIsLocationDialogOpen(true)}
+            />
+            <Button 
+              variant="outline" 
+              size="icon"
+              onClick={() => setIsLocationDialogOpen(true)}
+            >
+              <MapPin className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
         {/* Photo upload area */}
         <div className="space-y-2">
           <Label>Photos (up to 5)</Label>
@@ -430,30 +454,6 @@ export default function CreatePost() {
                 #{tag}
               </Badge>
             ))}
-          </div>
-        </div>
-
-        {/* Location */}
-        <div className="space-y-2">
-          <Label htmlFor="location">Location</Label>
-          <div className="flex items-center gap-2">
-            <Input 
-              id="location" 
-              name="location"
-              value={formData.location}
-              onChange={handleInputChange}
-              placeholder="Select a location" 
-              readOnly
-              className="cursor-pointer"
-              onClick={() => setIsLocationDialogOpen(true)}
-            />
-            <Button 
-              variant="outline" 
-              size="icon"
-              onClick={() => setIsLocationDialogOpen(true)}
-            >
-              <MapPin className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       </div>
