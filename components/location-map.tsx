@@ -51,7 +51,7 @@ export default function LocationMap({ selectedLocation, onSelectLocation }: Loca
     let active = true
     async function load() {
       try {
-        const locs: ExtendedLocation[] = await fetchLocations()
+        const locs: ExtendedLocation[] = await fetchLocations() // Use fast path for performance
         if (!active) return
         const mapMarkers = locs.map((location) => ({
           id: location.id,

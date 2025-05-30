@@ -39,15 +39,15 @@ const REPORT_REASONS = [
 
 export function ReportDialog({ postId, hasReported = false }: ReportDialogProps) {
   const [open, setOpen] = useState(false)
-  const [reason, setReason] = useState("")
+  const [selectedReason, setSelectedReason] = useState("")
   const [additionalInfo, setAdditionalInfo] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
 
-  async function handleSubmit() {
-    if (!reason) {
+  const handleSubmit = async () => {
+    if (!selectedReason) {
       toast({
-        title: "Please select a reason",
+        title: "Reason required",
         description: "You must select a reason for reporting this post.",
         variant: "destructive",
       })
@@ -55,12 +55,11 @@ export function ReportDialog({ postId, hasReported = false }: ReportDialogProps)
     }
 
     setIsSubmitting(true)
-
     try {
       const result = await createReport({
         post_id: postId,
-        reason,
-        additional_info: additionalInfo.trim() || undefined
+        reason: selectedReason,
+        additional_info: additionalInfo.trim() || undefined,
       })
 
       if (result.success) {
@@ -69,7 +68,7 @@ export function ReportDialog({ postId, hasReported = false }: ReportDialogProps)
           description: "Thank you for helping keep our community safe. We'll review this report.",
         })
         setOpen(false)
-        setReason("")
+        setSelectedReason("")
         setAdditionalInfo("")
       } else {
         toast({
@@ -79,23 +78,15 @@ export function ReportDialog({ postId, hasReported = false }: ReportDialogProps)
         })
       }
     } catch (error) {
+      console.error("Failed to submit report:", error)
       toast({
-        title: "Error",
-        description: "An unexpected error occurred. Please try again.",
+        title: "Failed to submit report",
+        description: "Please try again later.",
         variant: "destructive",
       })
     } finally {
       setIsSubmitting(false)
     }
-  }
-
-  if (hasReported) {
-    return (
-      <Button variant="ghost" size="sm" disabled className="text-muted-foreground">
-        <Flag className="h-4 w-4 mr-1" />
-        Reported
-      </Button>
-    )
   }
 
   return (
@@ -116,7 +107,7 @@ export function ReportDialog({ postId, hasReported = false }: ReportDialogProps)
         <div className="grid gap-4 py-4">
           <div className="space-y-2">
             <label className="text-sm font-medium">Reason for reporting *</label>
-            <Select value={reason} onValueChange={setReason}>
+            <Select value={selectedReason} onValueChange={setSelectedReason}>
               <SelectTrigger>
                 <SelectValue placeholder="Select a reason" />
               </SelectTrigger>
@@ -145,7 +136,7 @@ export function ReportDialog({ postId, hasReported = false }: ReportDialogProps)
           </Button>
           <Button 
             onClick={handleSubmit} 
-            disabled={isSubmitting || !reason}
+            disabled={isSubmitting || !selectedReason}
             className="bg-red-500 hover:bg-red-600"
           >
             {isSubmitting ? "Submitting..." : "Submit Report"}

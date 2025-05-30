@@ -38,8 +38,8 @@ export default function ProfileView() {
         if (userProfile) {
           const [posts, locations, saved, stats] = await Promise.all([
             fetchPostsByUser(userProfile.id),
-            fetchUserVisitedLocations(userProfile.id),
-            fetchUserSavedLocations(userProfile.id),
+            fetchUserVisitedLocations(userProfile.id, true),
+            fetchUserSavedLocations(userProfile.id, true),
             getUserStats(userProfile.id)
           ])
           setUserPosts(posts)

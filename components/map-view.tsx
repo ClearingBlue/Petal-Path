@@ -141,7 +141,7 @@ export default function MapView() {
   const [allLocations, setAllLocations] = useState<Location[]>([])
   const [selectedLocation, setSelectedLocation] = useState<number | null>(null)
   const [topPosts, setTopPosts] = useState<Post[]>([])
-  const [filterDistance, setFilterDistance] = useState([500])
+  const [filterDistance, setFilterDistance] = useState([1000])
   const [filterVisited, setFilterVisited] = useState(false)
   const [visitedLocationIds, setVisitedLocationIds] = useState<Set<number>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
@@ -203,7 +203,7 @@ export default function MapView() {
     async function load() {
       try {
         setIsLoading(true)
-        const locs = await fetchLocations()
+        const locs = await fetchLocations() // Use fast path for map view
         if (!active) return
         setAllLocations(locs)
         
@@ -211,7 +211,7 @@ export default function MapView() {
         try {
           const currentUser = await fetchCurrentUserProfile()
           if (currentUser) {
-            const visitedLocs = await fetchUserVisitedLocations(currentUser.id)
+            const visitedLocs = await fetchUserVisitedLocations(currentUser.id) // Use fast path for performance
             setVisitedLocationIds(new Set(visitedLocs.map(loc => loc.id)))
           }
         } catch (error) {
@@ -343,7 +343,7 @@ export default function MapView() {
                         <span className="text-xs">∞</span>
                       </div>
                       <Slider
-                        defaultValue={[500]}
+                        defaultValue={[1000]}
                         min={100}
                         max={1000}
                         step={100}

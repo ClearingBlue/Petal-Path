@@ -95,7 +95,7 @@ export default function CreatePost() {
   useEffect(() => {
     async function loadLocs() {
       try {
-        const data = await fetchLocations()
+        const data = await fetchLocations() // Use fast path for performance
         setLocationsList(data)
       } catch (e) {
         console.error('Failed to load locations', e)
