@@ -161,8 +161,8 @@ export async function fetchUserSavedLocations(userId: string, includePostImages 
     return locations
   } else {
     // Fast path without expensive image fetching
-    return (data ?? [])
-      .filter(item => item.locations)
+  return (data ?? [])
+    .filter(item => item.locations)
       .map(item => mapRowToLocationFast(item.locations))
   }
 }
