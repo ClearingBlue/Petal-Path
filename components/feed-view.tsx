@@ -13,9 +13,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ReportDialog } from "@/components/report-dialog"
 import { fetchPosts, togglePostVote, getUserVotes, type FeedType } from '@/lib/db/posts'
 import { fetchCurrentUserProfile } from '@/lib/db/profiles'
 import { toggleLocationSave, getUserSavedLocations } from '@/lib/db/user-locations'
+import { checkUserHasReported } from '@/lib/db/reports'
 
 const PostCard = memo(({ 
   post, 
@@ -30,7 +32,8 @@ const PostCard = memo(({
   postScores,
   currentImageIndices,
   imageError,
-  savedLocations 
+  savedLocations,
+  reportedPosts
 }: {
   post: any;
   onVote: (postId: number, direction: "up" | "down", e: React.MouseEvent) => void;
@@ -45,6 +48,7 @@ const PostCard = memo(({
   currentImageIndices: Record<number, number>;
   imageError: Record<string, boolean>;
   savedLocations: Set<number>;
+  reportedPosts: Set<number>;
 }) => {
   const router = useRouter();
   const currentIndex = currentImageIndices[post.id] ?? 0;
@@ -201,6 +205,10 @@ const PostCard = memo(({
             onClick={(e) => onComment(post.id, e)}>
             <MessageCircle className="h-4 w-4" />
           </Button>
+          <ReportDialog 
+            postId={post.id} 
+            hasReported={reportedPosts.has(post.id)} 
+          />
         </div>
       </CardFooter>
     </Card>
@@ -221,6 +229,7 @@ export default function FeedView() {
   const [feedType, setFeedType] = useState<FeedType>('hot')
   const [isLoading, setIsLoading] = useState(false)
   const [savedLocations, setSavedLocations] = useState<Set<number>>(new Set())
+  const [reportedPosts, setReportedPosts] = useState<Set<number>>(new Set())
 
   const loadPosts = useCallback(async (type: FeedType) => {
     setIsLoading(true)
@@ -241,6 +250,18 @@ export default function FeedView() {
       const locationIds = data.map(post => post.locationId).filter(Boolean)
       const savedLocationsSet = await getUserSavedLocations(locationIds)
       setSavedLocations(savedLocationsSet)
+      
+      // Get user reported posts
+      const reportedPostsSet = new Set<number>()
+      await Promise.all(
+        postIds.map(async (postId) => {
+          const hasReported = await checkUserHasReported(postId)
+          if (hasReported) {
+            reportedPostsSet.add(postId)
+          }
+        })
+      )
+      setReportedPosts(reportedPostsSet)
       
       // Initialize post scores and image indices
       const initialScores: Record<number, number> = {};
@@ -466,6 +487,7 @@ export default function FeedView() {
             currentImageIndices={currentImageIndices}
             imageError={imageError}
             savedLocations={savedLocations}
+            reportedPosts={reportedPosts}
           />
         ))}
       </div>

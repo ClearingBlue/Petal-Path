@@ -24,9 +24,10 @@ import { filterLocationsByRadius, fetchLocations } from "@/lib/db/locations"
 import type { ExtendedLocation as Location } from "@/lib/data/models/location"
 import { createMarkerIcon, createUserLocationIcon } from "@/lib/leaflet-utils"
 import dynamic from "next/dynamic"
-import { fetchUserSavedLocations } from '@/lib/db/user-locations'
+import { fetchUserSavedLocations, fetchUserVisitedLocations } from '@/lib/db/user-locations'
 import { fetchTopPostsByLocation } from '@/lib/db/posts'
-import type { Post } from "@/lib/data/models/post"
+import type { Post } from "@/lib/db/posts"
+import { fetchCurrentUserProfile } from '@/lib/db/profiles'
 
 // Define a type for the map content props
 interface MapContentProps {
@@ -140,7 +141,9 @@ export default function MapView() {
   const [allLocations, setAllLocations] = useState<Location[]>([])
   const [selectedLocation, setSelectedLocation] = useState<number | null>(null)
   const [topPosts, setTopPosts] = useState<Post[]>([])
-  const [filterDistance, setFilterDistance] = useState([200])
+  const [filterDistance, setFilterDistance] = useState([500])
+  const [filterVisited, setFilterVisited] = useState(false)
+  const [visitedLocationIds, setVisitedLocationIds] = useState<Set<number>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
   const [isClient, setIsClient] = useState(false)
   const [isMapReady, setIsMapReady] = useState(false)
@@ -203,8 +206,20 @@ export default function MapView() {
         const locs = await fetchLocations()
         if (!active) return
         setAllLocations(locs)
-        const nearby = filterLocationsByRadius(locs, stanfordCoordinates.lat, stanfordCoordinates.lng, filterDistance[0])
-        setLocations(nearby)
+        
+        // Load user's visited locations
+        try {
+          const currentUser = await fetchCurrentUserProfile()
+          if (currentUser) {
+            const visitedLocs = await fetchUserVisitedLocations(currentUser.id)
+            setVisitedLocationIds(new Set(visitedLocs.map(loc => loc.id)))
+          }
+        } catch (error) {
+          console.error('Failed to load visited locations:', error)
+        }
+        
+        const filtered = applyFilters(locs, filterDistance[0], filterVisited, visitedLocationIds)
+        setLocations(filtered)
       } catch (err) {
         console.error('Failed to load locations', err)
       } finally {
@@ -219,12 +234,33 @@ export default function MapView() {
     }
   }, [isBrowser])
 
-  // effect when filterDistance changes
+  // Helper function to apply all filters
+  const applyFilters = (
+    locs: Location[], 
+    distance: number, 
+    hideVisited: boolean, 
+    visitedIds: Set<number>
+  ): Location[] => {
+    let filtered = locs
+    
+    // Only apply distance filter if not at maximum (infinity)
+    if (distance < 1000) {
+      filtered = filterLocationsByRadius(locs, stanfordCoordinates.lat, stanfordCoordinates.lng, distance)
+    }
+    
+    if (hideVisited) {
+      filtered = filtered.filter(loc => !visitedIds.has(loc.id))
+    }
+    
+    return filtered
+  }
+
+  // effect when filterDistance or filterVisited changes
   useEffect(() => {
     if (!isBrowser) return
-    const nearby = filterLocationsByRadius(allLocations, stanfordCoordinates.lat, stanfordCoordinates.lng, filterDistance[0])
-    setLocations(nearby)
-  }, [filterDistance, allLocations, isBrowser])
+    const filtered = applyFilters(allLocations, filterDistance[0], filterVisited, visitedLocationIds)
+    setLocations(filtered)
+  }, [filterDistance, filterVisited, allLocations, visitedLocationIds, isBrowser])
 
   // Fetch top posts when a location is selected
   useEffect(() => {
@@ -300,28 +336,36 @@ export default function MapView() {
                     <h3 className="text-sm font-medium">Distance</h3>
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-xs">0m</span>
-                        <span className="text-xs">{filterDistance[0]}m</span>
-                        <span className="text-xs">500m</span>
+                        <span className="text-xs">100m</span>
+                        <span className="text-xs">
+                          {filterDistance[0] >= 1000 ? '∞' : `${filterDistance[0]}m`}
+                        </span>
+                        <span className="text-xs">∞</span>
                       </div>
                       <Slider
-                        defaultValue={[200]}
-                        max={500}
-                        step={50}
+                        defaultValue={[500]}
+                        min={100}
+                        max={1000}
+                        step={100}
                         value={filterDistance}
                         onValueChange={setFilterDistance}
                       />
+                      <div className="text-xs text-muted-foreground">
+                        Set to maximum (1km) for unlimited distance
+                      </div>
                     </div>
                   </div>
                   <div className="space-y-4">
-                    <h3 className="text-sm font-medium">Tags</h3>
+                    <h3 className="text-sm font-medium">Visited</h3>
                     <div className="space-y-2">
-                      {["#studyspot", "#foodie", "#nature", "#quiet", "#social", "#outdoors"].map((tag) => (
-                        <div key={tag} className="flex items-center space-x-2">
-                          <Checkbox id={tag} />
-                          <Label htmlFor={tag}>{tag}</Label>
-                        </div>
-                      ))}
+                      <div className="flex items-center space-x-2">
+                        <Checkbox 
+                          id="visited" 
+                          checked={filterVisited} 
+                          onCheckedChange={(checked) => setFilterVisited(checked === true)} 
+                        />
+                        <Label htmlFor="visited">Hide visited locations</Label>
+                      </div>
                     </div>
                   </div>
                 </div>
