@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Settings, Flower, MapPin, MessageCircle, Inbox, Bookmark } from "lucide-react"
+import { Settings, Flower, MapPin, MessageCircle, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -118,14 +118,6 @@ export default function ProfileView() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => router.push("/inbox")}
-              className="hover:bg-accent transition-colors"
-            >
-              <Inbox className="h-4 w-4" />
-            </Button>
             <Button variant="outline" size="icon" onClick={handleSettingsClick}>
               <Settings className="h-4 w-4" />
             </Button>

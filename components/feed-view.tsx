@@ -248,22 +248,14 @@ export default function FeedView() {
       const postIds = data.map(post => post.id)
       const userVotesMap = await getUserVotes(postIds)
       
-      // Get user saved locations for all posts
+      // Get user saved locations for all posts (batch operation)
       const locationIds = data.map(post => post.locationId).filter(Boolean)
       const savedLocationsSet = await getUserSavedLocations(locationIds)
       setSavedLocations(savedLocationsSet)
       
-      // Get user reported posts
-      const reportedPostsSet = new Set<number>()
-      await Promise.all(
-        postIds.map(async (postId) => {
-          const hasReported = await checkUserHasReported(postId)
-          if (hasReported) {
-            reportedPostsSet.add(postId)
-          }
-        })
-      )
-      setReportedPosts(reportedPostsSet)
+      // Skip expensive reported posts check for better performance
+      // Only check when user actually tries to report a post
+      setReportedPosts(new Set())
       
       // Initialize post scores and image indices
       const initialScores: Record<number, number> = {};
