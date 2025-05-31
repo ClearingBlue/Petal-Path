@@ -1,6 +1,7 @@
 import { createSupabaseClient } from '@/lib/supabase'
 import { fetchLocations } from './locations'
 import type { ExtendedLocation } from '@/lib/data/models/location'
+import { mapRowToLocation } from './locations'
 
 // Simple cache for location images to avoid repeated expensive fetches
 const locationImageCache = new Map<number, string>()

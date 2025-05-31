@@ -215,6 +215,38 @@ async function fetchPostsByIdsOptimized(postIds: number[], rankingMap: Map<numbe
   if (postIds.length === 0) return []
   
   const supabase = createSupabaseClient()
+  
+  // Batch process if too many postIds to prevent timeout
+  const BATCH_SIZE = 25
+  if (postIds.length > BATCH_SIZE) {
+    const batches = []
+    for (let i = 0; i < postIds.length; i += BATCH_SIZE) {
+      batches.push(postIds.slice(i, i + BATCH_SIZE))
+    }
+    
+    const allResults = await Promise.all(
+      batches.map(async batch => {
+        const batchRankingMap = new Map<number, any>()
+        batch.forEach(id => {
+          const ranking = rankingMap.get(id)
+          if (ranking) batchRankingMap.set(id, ranking)
+        })
+        return await fetchPostsByIdsBatch(batch, batchRankingMap)
+      })
+    )
+    
+    return allResults.flat()
+  }
+  
+  return await fetchPostsByIdsBatch(postIds, rankingMap)
+}
+
+async function fetchPostsByIdsBatch(postIds: number[], rankingMap: Map<number, any>): Promise<Post[]> {
+  if (postIds.length === 0) return []
+  
+  const supabase = createSupabaseClient()
+  
+  // Simplified query without complex joins to prevent timeout
   const { data, error } = await supabase
     .from('posts')
     .select(`
@@ -224,15 +256,49 @@ async function fetchPostsByIdsOptimized(postIds: number[], rankingMap: Map<numbe
       tags,
       created_at,
       user_id,
-      locations(id,name),
-      post_images(url)
+      location_id
     `)
     .in('id', postIds)
   
   if (error) throw new Error(error.message)
   
+  // Fetch related data separately for better performance
+  const [locationData, imageData] = await Promise.all([
+    supabase
+      .from('locations')
+      .select('id, name')
+      .in('id', data?.map(p => p.location_id).filter(Boolean) || []),
+    supabase
+      .from('post_images')
+      .select('post_id, url')
+      .in('post_id', postIds)
+  ])
+  
+  // Create maps for efficient lookup
+  const locationMap = new Map<number, { id: number; name: string }>()
+  if (locationData.data) {
+    locationData.data.forEach(l => locationMap.set(l.id, l))
+  }
+  
+  const imageMap = new Map<number, string[]>()
+  if (imageData.data) {
+    imageData.data.forEach(img => {
+      if (!imageMap.has(img.post_id)) {
+        imageMap.set(img.post_id, [])
+      }
+      imageMap.get(img.post_id)!.push(img.url)
+    })
+  }
+  
+  // Combine data manually
+  const enrichedData = data?.map(post => ({
+    ...post,
+    locations: locationMap.get(post.location_id),
+    post_images: imageMap.get(post.id) || []
+  })) || []
+  
   // Sort the results according to the ranking order
-  const sortedData = (data ?? []).sort((a, b) => {
+  const sortedData = enrichedData.sort((a, b) => {
     const scoreA = Number(rankingMap.get(a.id)?.ranking_score) || 0
     const scoreB = Number(rankingMap.get(b.id)?.ranking_score) || 0
     return scoreB - scoreA
@@ -405,23 +471,19 @@ async function processPostsDataOptimized(data: any[], precomputedRankings?: Map<
 
   // Get post IDs and fetch vote counts (skip expensive ranking if precomputed)
   const postIds = data.map(post => post.id)
-  let enhancedRankingData = new Map()
+  let enhancedRankingData: Map<number, any> = new Map()
   
   if (precomputedRankings) {
     enhancedRankingData = precomputedRankings
   } else {
     // Only fetch rankings if not precomputed (expensive operation)
-    const [rankingData, voteCounts] = await Promise.all([
-      getEnhancedRankingForPostsFast(postIds),
-      getVoteCountsForPosts(postIds)
-    ])
-    enhancedRankingData = rankingData
+    enhancedRankingData = await getEnhancedRankingForPostsFast(postIds)
   }
 
   // Get vote counts separately (lighter operation)
   const voteCounts = await getVoteCountsForPosts(postIds)
 
-  return data.map(row => mapRowToPostOptimized(row, profileMap, voteCounts, enhancedRankingData))
+  return data.map(row => mapRowToPostOptimized(row, profileMap, voteCounts, enhancedRankingData as Map<number, EnhancedRankingData>))
 }
 
 // Faster ranking fetch with fallback

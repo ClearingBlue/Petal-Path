@@ -138,7 +138,7 @@ export function filterLocationsByRadius(
 
 // --- helpers ---------------------------------------------------------------
 
-async function mapRowToLocation(row: any): Promise<ExtendedLocation> {
+export async function mapRowToLocation(row: any): Promise<ExtendedLocation> {
   // Get the most upvoted post image for this location
   const mostUpvotedImage = await getMostUpvotedPostImage(row.id)
   
