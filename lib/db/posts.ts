@@ -26,24 +26,12 @@ export interface VoteData {
   score: number
 }
 
-export interface EnhancedRankingData {
-  voteScore: number
-  commentScore: number
-  totalBaseScore: number
-  rankingScore: number
-  timeDecayFactor: number
-}
-
 export interface UserVote {
   postId: number
   voteType: 'up' | 'down' | null
 }
 
 export type FeedType = 'new' | 'hot' | 'follow'
-
-// Cache for profile data to avoid repeated fetches
-const profileCache = new Map<string, any>()
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 export async function fetchPosts(feedType: FeedType = 'hot'): Promise<Post[]> {
   switch (feedType) {
@@ -83,90 +71,85 @@ async function fetchPostsChronological(): Promise<Post[]> {
 async function fetchPostsRanked(): Promise<Post[]> {
   const supabase = createSupabaseClient()
   
-  // Get very recent posts (last 30 minutes) to show immediately
-  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-  
-  const [cachedData, recentData] = await Promise.all([
-    // Use cached rankings for older posts
-    supabase
-      .from('enhanced_post_rankings_cache')
-      .select(`
-        id,
-        ranking_score,
-        vote_score,
-        comment_score
-      `)
-      .lt('created_at', thirtyMinutesAgo)
-      .order('ranking_score', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(40),
+  try {
+    // Fetch recent posts with their data
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     
-    // Get recent posts with live ranking
-    supabase
+    const { data: posts, error } = await supabase
       .from('posts')
       .select(`
         id,
-        created_at,
         title,
         description,
         tags,
+        created_at,
         user_id,
         location_id,
         locations(id,name),
         post_images(url)
       `)
-      .gte('created_at', thirtyMinutesAgo)
+      .gte('created_at', oneWeekAgo)
       .order('created_at', { ascending: false })
-      .limit(10)
-  ])
-  
-  if (cachedData.error && recentData.error) {
-    console.error('Both cached and recent data failed, falling back to live ranking')
-    return await fetchPostsRankedLive()
-  }
-  
-  // Combine recent posts with cached rankings
-  const recentPosts = await processPostsDataOptimized(recentData.data ?? [])
-  const cachedPostIds: number[] = cachedData.data?.map((p: any) => p.id).filter((id): id is number => typeof id === 'number') || []
-  
-  // Create properly typed ranking map
-  const cachedRankingMap = new Map<number, any>()
-  cachedData.data?.forEach((p: any) => {
-    if (typeof p.id === 'number') {
-      cachedRankingMap.set(p.id, {
-        ranking_score: p.ranking_score,
-        vote_score: p.vote_score,
-        comment_score: p.comment_score 
-      })
-    }
-  })
-  
-  const cachedPosts = await fetchPostsByIdsOptimized(cachedPostIds, cachedRankingMap)
-  
-  // Merge: recent posts first, then cached posts
-  return [...recentPosts, ...cachedPosts].slice(0, 50)
-}
-
-async function fetchPostsRankedLive(): Promise<Post[]> {
-  const supabase = createSupabaseClient()
-  
-  // Fallback to live enhanced ranking
-  const { data: rankedData, error: rankedError } = await supabase
-    .rpc('get_enhanced_ranked_feed', { limit_count: 50 })
-  
-  if (rankedError) {
-    console.error('Error fetching enhanced ranked feed, falling back to chronological:', rankedError)
+      .limit(100)
+    
+    if (error) throw error
+    
+    if (!posts || posts.length === 0) return []
+    
+    // Get vote counts and comment counts for all posts
+    const postIds = posts.map(p => p.id)
+    
+    // Fetch vote counts
+    const { data: voteCounts } = await supabase
+      .from('post_likes')
+      .select('post_id, vote_type')
+      .in('post_id', postIds)
+    
+    // Fetch comment counts
+    const { data: commentCounts } = await supabase
+      .from('comments')
+      .select('post_id')
+      .in('post_id', postIds)
+    
+    // Calculate scores for each post
+    const postScores = new Map<number, number>()
+    
+    posts.forEach(post => {
+      // Calculate vote score
+      const postVotes = voteCounts?.filter(v => v.post_id === post.id) || []
+      const upvotes = postVotes.filter(v => v.vote_type === 'up').length
+      const downvotes = postVotes.filter(v => v.vote_type === 'down').length
+      const voteScore = upvotes - downvotes
+      
+      // Calculate comment score (2 points per comment)
+      const postComments = commentCounts?.filter(c => c.post_id === post.id) || []
+      const commentScore = postComments.length * 2
+      
+      // Calculate time decay (decreases over 7 days)
+      const ageInDays = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60 * 24)
+      const timeDecay = Math.max(0.1, 1 - (ageInDays / 7))
+      
+      // Calculate final ranking score
+      const rankingScore = (voteScore + commentScore) * timeDecay
+      
+      postScores.set(post.id, rankingScore)
+    })
+    
+    // Sort posts by ranking score
+    const sortedPosts = posts.sort((a, b) => {
+      const scoreA = postScores.get(a.id) || 0
+      const scoreB = postScores.get(b.id) || 0
+      return scoreB - scoreA
+    })
+    
+    // Take top 50 posts
+    const topPosts = sortedPosts.slice(0, 50)
+    
+    return await processPostsDataOptimized(topPosts)
+  } catch (error) {
+    console.warn('Error fetching ranked posts, falling back to chronological')
     return await fetchPostsChronological()
   }
-  
-  const postIds = rankedData?.map((p: any) => p.post_id) || []
-  const rankingMap = new Map(rankedData?.map((p: any) => [p.post_id, {
-    ranking_score: p.ranking_score,
-    vote_score: p.vote_score,
-    comment_score: p.comment_score
-  }]) || [])
-  
-  return await fetchPostsByIdsOptimized(postIds, rankingMap)
 }
 
 async function fetchPostsFromFollowedUsers(): Promise<Post[]> {
@@ -209,102 +192,6 @@ async function fetchPostsFromFollowedUsers(): Promise<Post[]> {
 
   if (error) throw new Error(error.message)
   return await processPostsDataOptimized(data ?? [])
-}
-
-async function fetchPostsByIdsOptimized(postIds: number[], rankingMap: Map<number, any>): Promise<Post[]> {
-  if (postIds.length === 0) return []
-  
-  const supabase = createSupabaseClient()
-  
-  // Batch process if too many postIds to prevent timeout
-  const BATCH_SIZE = 25
-  if (postIds.length > BATCH_SIZE) {
-    const batches = []
-    for (let i = 0; i < postIds.length; i += BATCH_SIZE) {
-      batches.push(postIds.slice(i, i + BATCH_SIZE))
-    }
-    
-    const allResults = await Promise.all(
-      batches.map(async batch => {
-        const batchRankingMap = new Map<number, any>()
-        batch.forEach(id => {
-          const ranking = rankingMap.get(id)
-          if (ranking) batchRankingMap.set(id, ranking)
-        })
-        return await fetchPostsByIdsBatch(batch, batchRankingMap)
-      })
-    )
-    
-    return allResults.flat()
-  }
-  
-  return await fetchPostsByIdsBatch(postIds, rankingMap)
-}
-
-async function fetchPostsByIdsBatch(postIds: number[], rankingMap: Map<number, any>): Promise<Post[]> {
-  if (postIds.length === 0) return []
-  
-  const supabase = createSupabaseClient()
-  
-  // Simplified query without complex joins to prevent timeout
-  const { data, error } = await supabase
-    .from('posts')
-    .select(`
-      id,
-      title,
-      description,
-      tags,
-      created_at,
-      user_id,
-      location_id
-    `)
-    .in('id', postIds)
-  
-  if (error) throw new Error(error.message)
-  
-  // Fetch related data separately for better performance
-  const [locationData, imageData] = await Promise.all([
-    supabase
-      .from('locations')
-      .select('id, name')
-      .in('id', data?.map(p => p.location_id).filter(Boolean) || []),
-    supabase
-      .from('post_images')
-      .select('post_id, url')
-      .in('post_id', postIds)
-  ])
-  
-  // Create maps for efficient lookup
-  const locationMap = new Map<number, { id: number; name: string }>()
-  if (locationData.data) {
-    locationData.data.forEach(l => locationMap.set(l.id, l))
-  }
-  
-  const imageMap = new Map<number, string[]>()
-  if (imageData.data) {
-    imageData.data.forEach(img => {
-      if (!imageMap.has(img.post_id)) {
-        imageMap.set(img.post_id, [])
-      }
-      imageMap.get(img.post_id)!.push(img.url)
-    })
-  }
-  
-  // Combine data manually
-  const enrichedData = data?.map(post => ({
-    ...post,
-    locations: locationMap.get(post.location_id),
-    post_images: imageMap.get(post.id) || []
-  })) || []
-  
-  // Sort the results according to the ranking order
-  const sortedData = enrichedData.sort((a, b) => {
-    const scoreA = Number(rankingMap.get(a.id)?.ranking_score) || 0
-    const scoreB = Number(rankingMap.get(b.id)?.ranking_score) || 0
-    return scoreB - scoreA
-  })
-  
-  return await processPostsDataOptimized(sortedData, rankingMap)
 }
 
 export async function fetchPostById(id: number): Promise<Post | null> {
@@ -357,90 +244,92 @@ export async function fetchPostsByLocation(locationId: number): Promise<Post[]> 
 export async function fetchTopPostsByLocation(locationId: number, limit: number = 2): Promise<Post[]> {
   const supabase = createSupabaseClient()
   
-  // Use cached rankings for better performance
-  const { data: topPosts, error } = await supabase
-    .from('enhanced_post_rankings_cache')
-    .select(`
-      id,
-      ranking_score,
-      vote_score,
-      comment_score
-    `)
-    .eq('location_id', locationId)
-    .order('ranking_score', { ascending: false })
-    .limit(limit)
-
-  if (error) {
-    console.error('Error fetching top posts from cache, falling back to live:', error)
-    // Fallback to live calculation
-    return await fetchTopPostsByLocationLive(locationId, limit)
-  }
-
-  const postIds = topPosts?.map(p => p.id) || []
-  const rankingMap = new Map(topPosts?.map((p: any) => [p.id, {
-    ranking_score: p.ranking_score,
-    vote_score: p.vote_score,
-    comment_score: p.comment_score
-  }]) || [])
-
-  return await fetchPostsByIdsOptimized(postIds, rankingMap)
-}
-
-async function fetchTopPostsByLocationLive(locationId: number, limit: number = 2): Promise<Post[]> {
-  const supabase = createSupabaseClient()
-  
-  // First get all posts for this location
-  const { data, error } = await supabase
-    .from('posts')
-    .select(`
-      id,
-      title,
-      description,
-      tags,
-      created_at,
-      user_id,
-      locations(id,name),
-      post_images(url)
-    `)
-    .eq('location_id', locationId)
-
-  if (error) throw new Error(error.message)
-
-  // Get enhanced ranking data for all posts
-  const postIds = data?.map(post => post.id) || []
-  const enhancedRankingData = await getEnhancedRankingForPosts(postIds)
-
-  // Sort by enhanced ranking score and take top posts
-  const postsWithScores = (data ?? []).map(post => ({
-    ...post,
-    rankingScore: enhancedRankingData.get(post.id)?.rankingScore || 0
-  })).sort((a, b) => b.rankingScore - a.rankingScore).slice(0, limit)
-
-  return await processPostsDataOptimized(postsWithScores)
-}
-
-// Cached profile fetching
-async function getCachedProfile(userId: string): Promise<any | null> {
-  const cached = profileCache.get(userId)
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached.profile
-  }
-
   try {
-    const profile = await fetchProfileById(userId)
-    if (profile) {
-      profileCache.set(userId, { profile, timestamp: Date.now() })
-      return profile
-    }
+    // Fetch posts for this location from the last 7 days
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    
+    const { data: posts, error } = await supabase
+      .from('posts')
+      .select(`
+        id,
+        title,
+        description,
+        tags,
+        created_at,
+        user_id,
+        location_id,
+        locations(id,name),
+        post_images(url)
+      `)
+      .eq('location_id', locationId)
+      .gte('created_at', oneWeekAgo)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    if (!posts || posts.length === 0) return []
+
+    // Get vote counts and comment counts
+    const postIds = posts.map(p => p.id)
+    
+    const { data: voteCounts } = await supabase
+      .from('post_likes')
+      .select('post_id, vote_type')
+      .in('post_id', postIds)
+    
+    const { data: commentCounts } = await supabase
+      .from('comments')
+      .select('post_id')
+      .in('post_id', postIds)
+
+    // Calculate ranking scores
+    const rankedPosts = posts.map(post => {
+      const postVotes = voteCounts?.filter(v => v.post_id === post.id) || []
+      const upvotes = postVotes.filter(v => v.vote_type === 'up').length
+      const downvotes = postVotes.filter(v => v.vote_type === 'down').length
+      const voteScore = upvotes - downvotes
+      
+      const postComments = commentCounts?.filter(c => c.post_id === post.id) || []
+      const commentScore = postComments.length * 2
+      
+      const ageInDays = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60 * 24)
+      const timeDecay = Math.max(0.1, 1 - (ageInDays / 7))
+      
+      const rankingScore = (voteScore + commentScore) * timeDecay
+      
+      return { ...post, rankingScore }
+    })
+
+    // Sort by ranking score and take top posts
+    rankedPosts.sort((a, b) => b.rankingScore - a.rankingScore)
+    const topPosts = rankedPosts.slice(0, limit)
+
+    return await processPostsDataOptimized(topPosts)
   } catch (error) {
-    console.error(`Failed to fetch profile for user ${userId}:`, error)
+    console.error('Error fetching top posts by location:', error)
+    // Fallback: just return most recent posts
+    const { data, error: fallbackError } = await supabase
+      .from('posts')
+      .select(`
+        id,
+        title,
+        description,
+        tags,
+        created_at,
+        user_id,
+        locations(id,name),
+        post_images(url)
+      `)
+      .eq('location_id', locationId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (fallbackError) throw new Error(fallbackError.message)
+    return await processPostsDataOptimized(data ?? [])
   }
-  
-  return null
 }
 
-// Optimized processing without expensive individual profile fetches
-async function processPostsDataOptimized(data: any[], precomputedRankings?: Map<number, any>): Promise<Post[]> {
+// Simplified profile fetching without cache
+async function processPostsDataOptimized(data: any[]): Promise<Post[]> {
   if (!data.length) return []
 
   // Get unique user IDs
@@ -456,62 +345,11 @@ async function processPostsDataOptimized(data: any[], precomputedRankings?: Map<
   // Create a map of user profiles
   const profileMap = new Map(profiles?.map(p => [p.id, p]) || [])
 
-  // For missing profiles, use cached fetch (avoid expensive individual calls)
-  const missingUserIds = userIds.filter(id => !profileMap.has(id))
-  if (missingUserIds.length > 0 && missingUserIds.length < 10) { // Only if small number missing
-    console.log(`Found ${missingUserIds.length} users without profiles, attempting cached resolution`)
-    
-    await Promise.all(missingUserIds.slice(0, 5).map(async (userId) => { // Limit to 5 to prevent slowdown
-      const profile = await getCachedProfile(userId)
-      if (profile) {
-        profileMap.set(userId, profile)
-      }
-    }))
-  }
-
-  // Get post IDs and fetch vote counts (skip expensive ranking if precomputed)
+  // Get vote counts separately
   const postIds = data.map(post => post.id)
-  let enhancedRankingData: Map<number, any> = new Map()
-  
-  if (precomputedRankings) {
-    enhancedRankingData = precomputedRankings
-  } else {
-    // Only fetch rankings if not precomputed (expensive operation)
-    enhancedRankingData = await getEnhancedRankingForPostsFast(postIds)
-  }
-
-  // Get vote counts separately (lighter operation)
   const voteCounts = await getVoteCountsForPosts(postIds)
 
-  return data.map(row => mapRowToPostOptimized(row, profileMap, voteCounts, enhancedRankingData as Map<number, EnhancedRankingData>))
-}
-
-// Faster ranking fetch with fallback
-async function getEnhancedRankingForPostsFast(postIds: number[]): Promise<Map<number, any>> {
-  if (postIds.length === 0) return new Map()
-  
-  const supabase = createSupabaseClient()
-  
-  // Try cache first
-  const { data: cachedData, error: cacheError } = await supabase
-    .from('enhanced_post_rankings_cache')
-    .select('id, vote_score, comment_score, ranking_score')
-    .in('id', postIds)
-  
-  if (!cacheError && cachedData && cachedData.length > 0) {
-    const rankingMap = new Map()
-    cachedData.forEach((ranking: any) => {
-      rankingMap.set(ranking.id, {
-        voteScore: ranking.vote_score,
-        commentScore: ranking.comment_score,
-        ranking_score: ranking.ranking_score
-      })
-    })
-    return rankingMap
-  }
-  
-  // Fallback to live calculation only if cache fails
-  return await getEnhancedRankingForPosts(postIds)
+  return data.map(row => mapRowToPostOptimized(row, profileMap, voteCounts))
 }
 
 export async function createPost(data: {
@@ -565,16 +403,13 @@ export async function createPost(data: {
     console.error('Failed to increment location visit:', error)
   }
 
-  // Refresh rankings cache for immediate visibility
-  try {
-    await supabase.rpc('refresh_rankings_cache')
-    console.log('Rankings cache refreshed after new post')
-  } catch (error) {
-    console.error('Failed to refresh cache after new post:', error)
-    // Don't fail post creation if cache refresh fails
+  // Fetch the complete post with all its relations
+  const completePost = await fetchPostById(post.id)
+  if (!completePost) {
+    throw new Error('Failed to fetch created post')
   }
-
-  return await fetchPostById(post.id) as Post
+  
+  return completePost
 }
 
 export async function deletePost(postId: number): Promise<void> {
@@ -582,10 +417,13 @@ export async function deletePost(postId: number): Promise<void> {
   const user = (await supabase.auth.getUser()).data.user
   if (!user) throw new Error('Not authenticated')
 
-  // Check if user owns the post
+  // Check if user owns the post and get images
   const { data: post } = await supabase
     .from('posts')
-    .select('user_id')
+    .select(`
+      user_id,
+      post_images(url)
+    `)
     .eq('id', postId)
     .single()
 
@@ -593,6 +431,36 @@ export async function deletePost(postId: number): Promise<void> {
     throw new Error('Not authorized to delete this post')
   }
 
+  // Delete images from storage
+  if (post.post_images && post.post_images.length > 0) {
+    const filePaths: string[] = []
+    
+    for (const image of post.post_images) {
+      try {
+        // Extract file path from URL
+        const url = new URL(image.url)
+        const pathMatch = url.pathname.match(/\/storage\/v1\/object\/public\/posts\/(.+)$/)
+        if (pathMatch && pathMatch[1]) {
+          filePaths.push(pathMatch[1])
+        }
+      } catch (error) {
+        console.error('Failed to parse image URL:', error)
+      }
+    }
+    
+    if (filePaths.length > 0) {
+      const { error: deleteError } = await supabase.storage
+        .from('posts')
+        .remove(filePaths)
+      
+      if (deleteError) {
+        console.error('Failed to delete images from storage:', deleteError)
+        // Continue with post deletion even if image deletion fails
+      }
+    }
+  }
+
+  // Delete the post (this will cascade delete post_images records)
   const { error } = await supabase
     .from('posts')
     .delete()
@@ -601,56 +469,51 @@ export async function deletePost(postId: number): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-// Enhanced helper function to get enhanced ranking data for multiple posts
-async function getEnhancedRankingForPosts(postIds: number[]): Promise<Map<number, EnhancedRankingData>> {
-  if (postIds.length === 0) return new Map()
-  
-  const supabase = createSupabaseClient()
-  const { data, error } = await supabase
-    .rpc('get_enhanced_post_rankings', { post_ids: postIds })
-  
-  if (error) {
-    console.error('Error fetching enhanced ranking data:', error)
-    return new Map()
-  }
-  
-  const rankingMap = new Map<number, EnhancedRankingData>()
-  data?.forEach((ranking: any) => {
-    rankingMap.set(ranking.post_id, {
-      voteScore: ranking.vote_score,
-      commentScore: ranking.comment_score,
-      totalBaseScore: ranking.total_base_score,
-      rankingScore: ranking.ranking_score,
-      timeDecayFactor: ranking.time_decay_factor
-    })
-  })
-  
-  return rankingMap
-}
-
 // Enhanced helper function to get vote counts for multiple posts
 async function getVoteCountsForPosts(postIds: number[]): Promise<Map<number, VoteData>> {
   if (postIds.length === 0) return new Map()
   
   const supabase = createSupabaseClient()
-  const { data, error } = await supabase
-    .rpc('get_post_vote_counts', { post_ids: postIds })
   
-  if (error) {
-    console.error('Error fetching vote counts:', error)
-    return new Map()
-  }
-  
-  const voteMap = new Map<number, VoteData>()
-  data?.forEach((vote: any) => {
-    voteMap.set(vote.post_id, {
-      upvotes: vote.upvotes,
-      downvotes: vote.downvotes,
-      score: vote.score
+  try {
+    // Fetch all votes for the posts
+    const { data: votes, error } = await supabase
+      .from('post_likes')
+      .select('post_id, vote_type')
+      .in('post_id', postIds)
+    
+    if (error) {
+      console.warn('Error fetching vote counts:', error)
+      // Return empty vote data for all posts
+      const voteMap = new Map<number, VoteData>()
+      postIds.forEach(id => {
+        voteMap.set(id, { upvotes: 0, downvotes: 0, score: 0 })
+      })
+      return voteMap
+    }
+    
+    // Calculate vote counts for each post
+    const voteMap = new Map<number, VoteData>()
+    
+    postIds.forEach(postId => {
+      const postVotes = votes?.filter(v => v.post_id === postId) || []
+      const upvotes = postVotes.filter(v => v.vote_type === 'up').length
+      const downvotes = postVotes.filter(v => v.vote_type === 'down').length
+      const score = upvotes - downvotes
+      
+      voteMap.set(postId, { upvotes, downvotes, score })
     })
-  })
-  
-  return voteMap
+    
+    return voteMap
+  } catch (error) {
+    console.warn('Vote counts not available:', error)
+    // Return empty vote data for all posts
+    const voteMap = new Map<number, VoteData>()
+    postIds.forEach(id => {
+      voteMap.set(id, { upvotes: 0, downvotes: 0, score: 0 })
+    })
+    return voteMap
+  }
 }
 
 // Helper function to get user's votes for multiple posts
@@ -661,23 +524,29 @@ export async function getUserVotes(postIds: number[]): Promise<Map<number, 'up' 
   const user = (await supabase.auth.getUser()).data.user
   if (!user) return new Map()
 
-  const { data, error } = await supabase
-    .rpc('get_user_votes', { 
-      user_id_param: user.id, 
-      post_ids: postIds 
+  try {
+    // Fetch user's votes directly from database
+    const { data: votes, error } = await supabase
+      .from('post_likes')
+      .select('post_id, vote_type')
+      .eq('user_id', user.id)
+      .in('post_id', postIds)
+
+    if (error) {
+      console.warn('Error fetching user votes:', error)
+      return new Map()
+    }
+
+    const voteMap = new Map<number, 'up' | 'down'>()
+    votes?.forEach((vote) => {
+      voteMap.set(vote.post_id, vote.vote_type as 'up' | 'down')
     })
 
-  if (error) {
-    console.error('Error fetching user votes:', error)
+    return voteMap
+  } catch (error) {
+    console.warn('User votes not available:', error)
     return new Map()
   }
-
-  const voteMap = new Map<number, 'up' | 'down'>()
-  data?.forEach((vote: any) => {
-    voteMap.set(vote.post_id, vote.vote_type as 'up' | 'down')
-  })
-
-  return voteMap
 }
 
 // Legacy function for backwards compatibility - now returns upvotes only
@@ -703,16 +572,17 @@ export async function getUserLikedPosts(): Promise<Set<number>> {
 function mapRowToPostOptimized(
   row: any, 
   profileMap: Map<string, any>, 
-  voteCounts: Map<number, VoteData>,
-  enhancedRankingData?: Map<number, EnhancedRankingData>
+  voteCounts: Map<number, VoteData>
 ): Post {
   const profile = profileMap.get(row.user_id)
   const voteData = voteCounts.get(row.id)
-  const enhancedData = enhancedRankingData?.get(row.id)
   
   // Provide better fallbacks for missing profile data
   const fallbackUsername = profile?.username || `user_${row.user_id?.slice(-8) || 'unknown'}`
   const fallbackName = profile?.full_name || profile?.username || fallbackUsername
+  
+  // Calculate comment count from the data if available
+  const commentCount = row.comments_count || 0
   
   return {
     id: row.id,
@@ -723,13 +593,13 @@ function mapRowToPostOptimized(
       avatar: profile?.avatar_url || '',
     },
     location: row.locations?.name ?? '',
-    locationId: row.locations?.id ?? 0,
+    locationId: row.locations?.id ?? row.location_id ?? 0,
     images: (row.post_images ?? []).map((img: any) => img.url),
     title: row.title ?? '',
     description: row.description ?? '',
     tags: row.tags ?? [],
     likes: voteData?.score || 0, // Net score (upvotes - downvotes)
-    comments: Math.floor((enhancedData?.commentScore || 0) / 2), // Convert back from points to count
+    comments: commentCount,
     createdAt: row.created_at ?? '',
   }
 }

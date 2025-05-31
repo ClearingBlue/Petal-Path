@@ -203,7 +203,7 @@ export default function MapView() {
     async function load() {
       try {
         setIsLoading(true)
-        const locs = await fetchLocations() // Use fast path for map view
+        const locs = await fetchLocations(true) // Include images for map view
         if (!active) return
         setAllLocations(locs)
         

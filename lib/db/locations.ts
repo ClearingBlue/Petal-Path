@@ -76,15 +76,36 @@ export async function fetchLocations(includePostImages = false): Promise<Extende
     throw new Error(error.message)
   }
 
+  // Get post counts for all locations
+  const { data: postCounts } = await supabase
+    .from('posts')
+    .select('location_id')
+    .order('location_id')
+  
+  // Count posts per location
+  const postCountMap = new Map<number, number>()
+  postCounts?.forEach(post => {
+    const count = postCountMap.get(post.location_id) || 0
+    postCountMap.set(post.location_id, count + 1)
+  })
+
   // Cast the result to our ExtendedLocation interface (camelCase props)
   if (includePostImages) {
     const locations = await Promise.all(
-      (data ?? []).map(async (row) => await mapRowToLocation(row))
+      (data ?? []).map(async (row) => {
+        const location = await mapRowToLocation(row)
+        location.visitCount = postCountMap.get(row.id) || 0
+        return location
+      })
     )
     return locations
   } else {
     // Fast path without expensive image fetching
-    return (data ?? []).map((row) => mapRowToLocationFast(row))
+    return (data ?? []).map((row) => {
+      const location = mapRowToLocationFast(row)
+      location.visitCount = postCountMap.get(row.id) || 0
+      return location
+    })
   }
 }
 
@@ -98,7 +119,19 @@ export async function fetchLocationById(id: number, includePostImages = true): P
     if (error.code === 'PGRST116') return null
     throw new Error(error.message)
   }
-  return data ? await mapRowToLocation(data) : null
+  
+  if (!data) return null
+  
+  // Get post count for this location
+  const { count } = await supabase
+    .from('posts')
+    .select('*', { count: 'exact', head: true })
+    .eq('location_id', id)
+  
+  const location = await mapRowToLocation(data)
+  location.visitCount = count || 0
+  
+  return location
 }
 
 /**

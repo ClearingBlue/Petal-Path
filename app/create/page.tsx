@@ -23,6 +23,7 @@ import { fetchLocations } from '@/lib/db/locations'
 import type { ExtendedLocation } from '@/lib/data/models/location'
 import dynamic from "next/dynamic"
 import { useSession } from '@supabase/auth-helpers-react'
+import { createSupabaseClient } from '@/lib/supabase'
 
 // Preset tags list
 const PRESET_TAGS = [
@@ -39,19 +40,6 @@ const LocationMapWithNoSSR = dynamic(() => import("@/components/location-map"), 
     </div>
   ),
 });
-
-function dataURLtoFile(dataUrl: string, fileName: string): File {
-  const arr = dataUrl.split(',')
-  const mimeMatch = arr[0].match(/:(.*?);/)
-  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg'
-  const bstr = atob(arr[arr.length - 1])
-  let n = bstr.length
-  const u8arr = new Uint8Array(n)
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n)
-  }
-  return new File([u8arr], fileName, { type: mime })
-}
 
 export default function CreatePost() {
   const router = useRouter();
@@ -117,11 +105,7 @@ export default function CreatePost() {
         tags: draft.tags ?? [],
       })
       setSelectedLocationId(draft.locationId ?? null)
-      if (Array.isArray(draft.previews)) {
-        setImagePreviews(draft.previews)
-        const files = draft.previews.map((url: string, idx: number) => dataURLtoFile(url, `draft-${idx}.png`))
-        setImageFiles(files)
-      }
+      // Don't restore images - they were base64 and too large
     } catch {
       /* ignore */
     }
@@ -135,13 +119,15 @@ export default function CreatePost() {
       location: formData.location,
       locationId: selectedLocationId,
       tags: formData.tags,
+      // Don't save image previews - they're too large for localStorage
+      imageCount: imagePreviews.length
     }
     try {
       localStorage.setItem('post-draft', JSON.stringify(draft))
     } catch {
       // quota exceeded – ignore silently
     }
-  }, [formData, selectedLocationId, imagePreviews])
+  }, [formData, selectedLocationId, imagePreviews.length])
 
   // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -278,22 +264,52 @@ export default function CreatePost() {
     setIsSubmitting(true);
     
     try {
-      // Upload images and get URLs
+      // Upload images to Supabase Storage and get URLs
       const imageUrls: string[] = []
+      const supabase = createSupabaseClient()
+      const user = (await supabase.auth.getUser()).data.user
       
-      for (const file of imageFiles) {
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+      
+      // Create a unique folder for this post
+      const timestamp = Date.now()
+      const postFolder = `${user.id}/${timestamp}`
+      
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i]
+        const fileExt = file.name.split('.').pop()
+        const fileName = `${i}.${fileExt}`
+        const filePath = `${postFolder}/${fileName}`
+        
         try {
-          // Create a data URL from the file for now
-          // In a real app, you would upload to your storage service here
-          const reader = new FileReader()
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            reader.onload = () => resolve(reader.result as string)
-            reader.onerror = () => reject(reader.error)
-            reader.readAsDataURL(file)
-          })
-          imageUrls.push(dataUrl)
+          // Upload file to Supabase Storage
+          const { error: uploadError } = await supabase.storage
+            .from('posts')
+            .upload(filePath, file, {
+              cacheControl: '3600',
+              upsert: false
+            })
+          
+          if (uploadError) {
+            console.error('Failed to upload image:', uploadError)
+            toast({
+              title: "Upload failed",
+              description: `Failed to upload image ${i + 1}: ${uploadError.message}`,
+              variant: "destructive",
+            })
+            continue
+          }
+          
+          // Get public URL
+          const { data } = supabase.storage
+            .from('posts')
+            .getPublicUrl(filePath)
+          
+          imageUrls.push(data.publicUrl)
         } catch (uploadError) {
-          console.error('Failed to process image:', uploadError)
+          console.error('Failed to upload image:', uploadError)
           // Continue with other images even if one fails
         }
       }
@@ -460,7 +476,7 @@ export default function CreatePost() {
 
       {/* Location selection dialog */}
       <Dialog open={isLocationDialogOpen} onOpenChange={setIsLocationDialogOpen}>
-        <DialogContent className="sm:max-w-md max-w-[90vw] w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="sm:max-w-md w-[calc(100vw-2rem)] max-w-md max-h-[90vh] overflow-hidden flex flex-col mx-4">
           <DialogHeader>
             <DialogTitle>Select Location</DialogTitle>
           </DialogHeader>

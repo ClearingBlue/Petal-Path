@@ -9,10 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
-import { fetchPostsByUser } from "@/lib/db/posts"
+import { fetchPostsByUser, type Post } from "@/lib/db/posts"
 import { fetchUserVisitedLocations, fetchUserSavedLocations } from "@/lib/db/user-locations"
 import { getUserStats, type UserStats } from "@/lib/db/follows"
-import type { Post } from "@/lib/data/models/post"
 import type { ExtendedLocation } from "@/lib/data/models/location"
 
 export default function ProfileView() {

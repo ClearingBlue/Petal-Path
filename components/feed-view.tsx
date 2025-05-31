@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, memo } from "react"
+import { useState, useEffect, useCallback, memo, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { MessageCircle, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -112,7 +112,7 @@ const PostCard = memo(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity z-10"
                     onClick={(e) => onImageNavigation(post.id, "prev", e)}
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -120,7 +120,7 @@ const PostCard = memo(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity z-10"
                     onClick={(e) => onImageNavigation(post.id, "next", e)}
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -232,8 +232,70 @@ export default function FeedView() {
   const [isLoading, setIsLoading] = useState(false)
   const [savedLocations, setSavedLocations] = useState<Set<number>>(new Set())
   const [reportedPosts, setReportedPosts] = useState<Set<number>>(new Set())
+  const lastFetchRef = useRef<{ type: FeedType; timestamp: number } | null>(null)
 
-  const loadPosts = useCallback(async (type: FeedType) => {
+  // Load cached posts if available
+  const loadCachedPosts = useCallback((type: FeedType): any[] | null => {
+    try {
+      const cacheKey = `feed_posts_${type}`
+      const cached = sessionStorage.getItem(cacheKey)
+      if (cached) {
+        const { posts, timestamp } = JSON.parse(cached)
+        // Cache is valid for 5 minutes
+        if (Date.now() - timestamp < 5 * 60 * 1000) {
+          return posts
+        }
+      }
+    } catch (error) {
+      console.error('Error loading cached posts:', error)
+    }
+    return null
+  }, [])
+
+  // Save posts to cache
+  const saveCachedPosts = useCallback((type: FeedType, posts: any[]) => {
+    try {
+      const cacheKey = `feed_posts_${type}`
+      sessionStorage.setItem(cacheKey, JSON.stringify({
+        posts,
+        timestamp: Date.now()
+      }))
+    } catch (error) {
+      console.error('Error saving posts to cache:', error)
+    }
+  }, [])
+
+  const loadPosts = useCallback(async (type: FeedType, forceRefresh: boolean = false) => {
+    // Check if we should use cached data
+    if (!forceRefresh) {
+      const cachedPosts = loadCachedPosts(type)
+      if (cachedPosts) {
+        setPosts(cachedPosts)
+        // Still fetch fresh voting data and user info
+        const postIds = cachedPosts.map(post => post.id)
+        const [userVotesMap, currentUser] = await Promise.all([
+          getUserVotes(postIds),
+          fetchCurrentUserProfile()
+        ])
+        
+        setCurrentUserId(currentUser?.id || null)
+        
+        // Update votes and scores
+        const initialVotes: Record<number, "up" | "down" | null> = {}
+        cachedPosts.forEach(post => {
+          initialVotes[post.id] = userVotesMap.get(post.id) || null
+        })
+        setUserVotes(initialVotes)
+        
+        // Fetch saved locations
+        const locationIds = cachedPosts.map(post => post.locationId).filter(Boolean)
+        const savedLocationsSet = await getUserSavedLocations(locationIds)
+        setSavedLocations(savedLocationsSet)
+        
+        return
+      }
+    }
+
     setIsLoading(true)
     try {
       const [data, currentUser] = await Promise.all([
@@ -243,6 +305,9 @@ export default function FeedView() {
       
       setPosts(data)
       setCurrentUserId(currentUser?.id || null)
+      
+      // Save to cache
+      saveCachedPosts(type, data)
       
       // Get user votes for all posts
       const postIds = data.map(post => post.id)
@@ -274,16 +339,23 @@ export default function FeedView() {
       setPostScores(initialScores);
       setCurrentImageIndices(initialIndices);
       setUserVotes(initialVotes);
+      
+      lastFetchRef.current = { type, timestamp: Date.now() }
     } catch (e) {
       console.error('Failed to load posts', e)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [loadCachedPosts, saveCachedPosts])
 
   useEffect(() => {
     setIsMounted(true)
-    loadPosts(feedType)
+    // Check if we need to refresh
+    const shouldRefresh = !lastFetchRef.current || 
+                         lastFetchRef.current.type !== feedType ||
+                         Date.now() - lastFetchRef.current.timestamp > 5 * 60 * 1000 // 5 minutes
+    
+    loadPosts(feedType, shouldRefresh)
   }, [loadPosts, feedType])
 
   const handleFeedTypeChange = useCallback((newFeedType: FeedType) => {

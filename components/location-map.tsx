@@ -74,7 +74,7 @@ export default function LocationMap({ selectedLocation, onSelectLocation }: Loca
     <LeafletMap
       mapKey={mapKey}
       center={[stanfordCoordinates.lat, stanfordCoordinates.lng]}
-      zoom={14}
+      zoom={13}
       markers={markers}
       selectedLocation={selectedLocation}
       onMarkerClick={handleMarkerClick}

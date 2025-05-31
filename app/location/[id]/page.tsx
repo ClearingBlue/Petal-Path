@@ -11,11 +11,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { fetchPostsByLocation, getUserLikedPosts, togglePostVote } from '@/lib/db/posts'
+import { fetchPostsByLocation, getUserLikedPosts, togglePostVote, type Post } from '@/lib/db/posts'
 import { fetchLocationById } from '@/lib/db/locations'
 import { toggleLocationSave, checkLocationSaved } from '@/lib/db/user-locations'
 import type { ExtendedLocation } from '@/lib/data/models/location'
-import type { Post } from '@/lib/data/models/post'
 import dynamic from "next/dynamic"
 
 // Dynamically load map component to avoid SSR issues
@@ -281,17 +280,6 @@ export default function LocationFeed({ params }: { params: { id: string } }) {
                   selectedLocation={location.name}
                   onSelectLocation={() => {}}
                 />
-              </div>
-              <div className="flex flex-col gap-2 mt-4">
-                <h3 className="font-semibold">Location Info</h3>
-                <p className="text-sm text-muted-foreground">{location.description || "No description available"}</p>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <MapPin className="h-4 w-4 mr-1" />
-                  {location.address}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Visits: {location.visitCount}
-                </div>
               </div>
             </TabsContent>
           </Tabs>

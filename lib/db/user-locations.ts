@@ -166,20 +166,21 @@ export async function fetchUserSavedLocations(userId: string, includePostImages 
   
   if (error) throw new Error(error.message)
   
-  // Map to ExtendedLocation format
-  if (includePostImages) {
-    const locations = await Promise.all(
-      (data ?? [])
-        .filter(item => item.locations)
-        .map(async item => await mapRowToLocation(item.locations))
-    )
-    return locations
-  } else {
-    // Fast path without expensive image fetching
-  return (data ?? [])
-    .filter(item => item.locations)
-      .map(item => mapRowToLocationFast(item.locations))
-  }
+  // Always fetch images for saved locations for better UX
+  const locations = await Promise.all(
+    (data ?? [])
+      .filter(item => item.locations)
+      .map(async item => {
+        const location = mapRowToLocationFast(item.locations)
+        // Try to get a recent post image for this location
+        const imageUrl = await getLocationImageFast(item.location_id)
+        if (imageUrl) {
+          location.imageUrl = imageUrl
+        }
+        return location
+      })
+  )
+  return locations
 }
 
 export async function toggleLocationSave(locationId: number): Promise<{ isSaved: boolean }> {
@@ -258,45 +259,54 @@ export async function checkLocationSaved(locationId: number): Promise<boolean> {
 export async function fetchUserVisitedLocations(userId: string, includePostImages = false): Promise<ExtendedLocation[]> {
   const supabase = createSupabaseClient()
   
-  // Get locations where the user has visit records AND has actually posted
-  const { data, error } = await supabase
-    .from('location_visits')
+  // Get all locations where the user has posted
+  const { data: userPosts, error } = await supabase
+    .from('posts')
     .select(`
       location_id,
-      visit_count,
       locations(*)
     `)
     .eq('user_id', userId)
-    .order('last_visit_at', { ascending: false })
   
   if (error) throw new Error(error.message)
   
-  // Filter to only include locations where user actually has posts
-  const locationsWithPosts = []
-  for (const item of data ?? []) {
-    if (!item.locations) continue
+  // Group by location and count posts
+  const locationPostCounts = new Map<number, { location: any, postCount: number }>()
+  
+  for (const post of userPosts ?? []) {
+    if (!post.locations || !post.location_id) continue
     
-    // Check if user has posts at this location
-    const { data: userPosts } = await supabase
-      .from('posts')
-      .select('id')
-      .eq('location_id', item.location_id)
-      .eq('user_id', userId)
-      .limit(1)
-    
-    // Only include if user has actually posted at this location
-    if (userPosts && userPosts.length > 0) {
-      locationsWithPosts.push(item)
+    const existing = locationPostCounts.get(post.location_id)
+    if (existing) {
+      existing.postCount++
+    } else {
+      locationPostCounts.set(post.location_id, {
+        location: post.locations,
+        postCount: 1
+      })
     }
   }
   
-  // Always use fast path for better performance
-  return locationsWithPosts.map(item => {
-    const location = mapRowToLocationFast(item.locations)
-    // Override visitCount with user's specific visit count
-    location.visitCount = item.visit_count
-    return location
-  })
+  // Convert to array and sort by post count (most posts first)
+  const sortedLocations = Array.from(locationPostCounts.values())
+    .sort((a, b) => b.postCount - a.postCount)
+  
+  // Fetch images for visited locations
+  const locationsWithImages = await Promise.all(
+    sortedLocations.map(async item => {
+      const location = mapRowToLocationFast(item.location)
+      // Set visitCount to the number of posts the user made at this location
+      location.visitCount = item.postCount
+      // Try to get an image for this location
+      const imageUrl = await getLocationImageFast(item.location.id)
+      if (imageUrl) {
+        location.imageUrl = imageUrl
+      }
+      return location
+    })
+  )
+  
+  return locationsWithImages
 }
 
 // Helper function to map database row to ExtendedLocation (optimized version)

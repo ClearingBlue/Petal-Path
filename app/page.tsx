@@ -86,7 +86,7 @@ export default function Home() {
         <TabsContent value="profile" className="flex-1 p-0 data-[state=active]:flex data-[state=active]:flex-col">
           {activeTab === "profile" && <ProfileView />}
         </TabsContent>
-        <TabsList className="fixed bottom-0 left-0 right-0 h-16 grid w-full grid-cols-4 gap-4 border-t bg-background p-2">
+        <TabsList className="fixed bottom-0 left-0 right-0 h-auto min-h-16 grid w-full grid-cols-4 gap-4 border-t bg-background p-2 pb-safe">
           <TabsTrigger
             value="map"
             className="flex flex-col items-center justify-center rounded-md data-[state=active]:bg-muted"
