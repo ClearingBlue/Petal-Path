@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/refresh-cache",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/2 * * * *"
     }
   ]
 } 

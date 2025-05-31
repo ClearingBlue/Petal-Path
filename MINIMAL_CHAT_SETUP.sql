@@ -64,11 +64,11 @@ CREATE INDEX IF NOT EXISTS idx_enhanced_rankings_score ON public.enhanced_post_r
 CREATE INDEX IF NOT EXISTS idx_enhanced_rankings_user ON public.enhanced_post_rankings_cache(user_id);
 CREATE INDEX IF NOT EXISTS idx_enhanced_rankings_location ON public.enhanced_post_rankings_cache(location_id);
 
--- Function to refresh rankings cache (call this periodically)
+-- Function to refresh rankings cache (non-concurrent for simplicity)
 CREATE OR REPLACE FUNCTION refresh_rankings_cache()
 RETURNS void
 LANGUAGE sql
 SECURITY DEFINER
 AS $$
-  REFRESH MATERIALIZED VIEW CONCURRENTLY public.enhanced_post_rankings_cache;
+  REFRESH MATERIALIZED VIEW public.enhanced_post_rankings_cache;
 $$; 

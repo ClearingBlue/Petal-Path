@@ -83,33 +83,68 @@ async function fetchPostsChronological(): Promise<Post[]> {
 async function fetchPostsRanked(): Promise<Post[]> {
   const supabase = createSupabaseClient()
   
-  // Use cached rankings for better performance
-  const { data: rankedData, error: rankedError } = await supabase
-    .from('enhanced_post_rankings_cache')
-    .select(`
-      id,
-      ranking_score,
-      vote_score,
-      comment_score
-    `)
-    .order('ranking_score', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(50)
+  // Get very recent posts (last 30 minutes) to show immediately
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
   
-  if (rankedError) {
-    console.error('Error fetching cached rankings, falling back to live ranking:', rankedError)
-    // Fallback to live ranking
+  const [cachedData, recentData] = await Promise.all([
+    // Use cached rankings for older posts
+    supabase
+      .from('enhanced_post_rankings_cache')
+      .select(`
+        id,
+        ranking_score,
+        vote_score,
+        comment_score
+      `)
+      .lt('created_at', thirtyMinutesAgo)
+      .order('ranking_score', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(40),
+    
+    // Get recent posts with live ranking
+    supabase
+      .from('posts')
+      .select(`
+        id,
+        created_at,
+        title,
+        description,
+        tags,
+        user_id,
+        location_id,
+        locations(id,name),
+        post_images(url)
+      `)
+      .gte('created_at', thirtyMinutesAgo)
+      .order('created_at', { ascending: false })
+      .limit(10)
+  ])
+  
+  if (cachedData.error && recentData.error) {
+    console.error('Both cached and recent data failed, falling back to live ranking')
     return await fetchPostsRankedLive()
   }
   
-  const postIds = rankedData?.map((p: any) => p.id) || []
-  const rankingMap = new Map(rankedData?.map((p: any) => [p.id, { 
-    ranking_score: p.ranking_score,
-    vote_score: p.vote_score,
-    comment_score: p.comment_score 
-  }]) || [])
+  // Combine recent posts with cached rankings
+  const recentPosts = await processPostsDataOptimized(recentData.data ?? [])
+  const cachedPostIds: number[] = cachedData.data?.map((p: any) => p.id).filter((id): id is number => typeof id === 'number') || []
   
-  return await fetchPostsByIdsOptimized(postIds, rankingMap)
+  // Create properly typed ranking map
+  const cachedRankingMap = new Map<number, any>()
+  cachedData.data?.forEach((p: any) => {
+    if (typeof p.id === 'number') {
+      cachedRankingMap.set(p.id, {
+        ranking_score: p.ranking_score,
+        vote_score: p.vote_score,
+        comment_score: p.comment_score 
+      })
+    }
+  })
+  
+  const cachedPosts = await fetchPostsByIdsOptimized(cachedPostIds, cachedRankingMap)
+  
+  // Merge: recent posts first, then cached posts
+  return [...recentPosts, ...cachedPosts].slice(0, 50)
 }
 
 async function fetchPostsRankedLive(): Promise<Post[]> {
@@ -466,6 +501,15 @@ export async function createPost(data: {
   } catch (error) {
     // Don't fail the post creation if visit tracking fails
     console.error('Failed to increment location visit:', error)
+  }
+
+  // Refresh rankings cache for immediate visibility
+  try {
+    await supabase.rpc('refresh_rankings_cache')
+    console.log('Rankings cache refreshed after new post')
+  } catch (error) {
+    console.error('Failed to refresh cache after new post:', error)
+    // Don't fail post creation if cache refresh fails
   }
 
   return await fetchPostById(post.id) as Post
