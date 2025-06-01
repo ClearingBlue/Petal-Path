@@ -18,6 +18,7 @@ export interface Post {
   likes: number
   comments: number
   createdAt: string
+  topComment?: { content: string; author: { name: string; username: string } }
 }
 
 export interface VoteData {
@@ -205,6 +206,7 @@ export async function fetchPostById(id: number): Promise<Post | null> {
       tags,
       created_at,
       user_id,
+      location_id,
       locations(id,name),
       post_images(url)
     `)
@@ -349,7 +351,42 @@ async function processPostsDataOptimized(data: any[]): Promise<Post[]> {
   const postIds = data.map(post => post.id)
   const voteCounts = await getVoteCountsForPosts(postIds)
 
-  return data.map(row => mapRowToPostOptimized(row, profileMap, voteCounts))
+  // Get comment counts and top comments
+  const { data: commentData } = await supabase
+    .from('comments')
+    .select('id, post_id, content, created_at, user_id')
+    .in('post_id', postIds)
+    .order('created_at', { ascending: false })
+
+  // Process comment data
+  const commentCounts = new Map<number, number>()
+  const topComments = new Map<number, { content: string; userId: string }>()
+  
+  postIds.forEach(postId => {
+    const postComments = commentData?.filter(c => c.post_id === postId) || []
+    commentCounts.set(postId, postComments.length)
+    
+    // Get the most recent comment
+    if (postComments.length > 0) {
+      topComments.set(postId, {
+        content: postComments[0].content,
+        userId: postComments[0].user_id
+      })
+    }
+  })
+
+  // Get profiles for comment authors if we have top comments
+  const commentUserIds = [...topComments.values()].map(c => c.userId).filter(id => !profileMap.has(id))
+  if (commentUserIds.length > 0) {
+    const { data: commentProfiles } = await supabase
+      .from('profiles')
+      .select('id, username, full_name, avatar_url')
+      .in('id', commentUserIds)
+    
+    commentProfiles?.forEach(p => profileMap.set(p.id, p))
+  }
+
+  return data.map(row => mapRowToPostOptimized(row, profileMap, voteCounts, commentCounts, topComments))
 }
 
 export async function createPost(data: {
@@ -572,35 +609,50 @@ export async function getUserLikedPosts(): Promise<Set<number>> {
 function mapRowToPostOptimized(
   row: any, 
   profileMap: Map<string, any>, 
-  voteCounts: Map<number, VoteData>
+  voteCounts: Map<number, VoteData>,
+  commentCounts?: Map<number, number>,
+  topComments?: Map<number, { content: string; userId: string }>
 ): Post {
   const profile = profileMap.get(row.user_id)
-  const voteData = voteCounts.get(row.id)
   
   // Provide better fallbacks for missing profile data
   const fallbackUsername = profile?.username || `user_${row.user_id?.slice(-8) || 'unknown'}`
   const fallbackName = profile?.full_name || profile?.username || fallbackUsername
   
-  // Calculate comment count from the data if available
-  const commentCount = row.comments_count || 0
+  const voteData = voteCounts.get(row.id) || { upvotes: 0, downvotes: 0, score: 0 }
+  const commentCount = commentCounts?.get(row.id) || 0
+  const topComment = topComments?.get(row.id)
+  
+  let topCommentInfo = undefined
+  if (topComment) {
+    const commentAuthor = profileMap.get(topComment.userId)
+    topCommentInfo = {
+      content: topComment.content,
+      author: {
+        name: commentAuthor?.full_name || commentAuthor?.username || 'Anonymous',
+        username: commentAuthor?.username || 'anonymous'
+      }
+    }
+  }
   
   return {
     id: row.id,
     user: {
-      id: row.user_id ?? '0',
+      id: row.user_id,
       name: fallbackName,
       username: fallbackUsername,
-      avatar: profile?.avatar_url || '',
+      avatar: profile?.avatar_url || ''
     },
-    location: row.locations?.name ?? '',
-    locationId: row.locations?.id ?? row.location_id ?? 0,
-    images: (row.post_images ?? []).map((img: any) => img.url),
-    title: row.title ?? '',
-    description: row.description ?? '',
-    tags: row.tags ?? [],
-    likes: voteData?.score || 0, // Net score (upvotes - downvotes)
+    location: row.locations?.name || 'Unknown Location',
+    locationId: row.location_id || row.locations?.id || 0,
+    images: row.post_images?.map((img: any) => img.url) || [],
+    title: row.title,
+    description: row.description,
+    tags: row.tags || [],
+    likes: voteData.score, // net score (upvotes - downvotes)
     comments: commentCount,
-    createdAt: row.created_at ?? '',
+    createdAt: row.created_at,
+    topComment: topCommentInfo
   }
 }
 

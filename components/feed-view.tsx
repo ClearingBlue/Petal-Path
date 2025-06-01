@@ -207,12 +207,23 @@ const PostCard = memo(({
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" 
+          <Button variant="ghost" size="sm" className="h-8 px-2 flex items-center gap-1" 
             onClick={(e) => onComment(post.id, e)}>
             <MessageCircle className="h-4 w-4" />
+            {post.comments > 0 && (
+              <span className="text-sm font-medium">{post.comments}</span>
+            )}
           </Button>
         </div>
       </CardFooter>
+      {post.topComment && (
+        <div className="px-4 pb-4 pt-0">
+          <div className="bg-muted/50 rounded-lg p-3 text-sm">
+            <span className="font-medium text-foreground">{post.topComment.author.name}</span>
+            <span className="text-muted-foreground">: {post.topComment.content}</span>
+          </div>
+        </div>
+      )}
     </Card>
   );
 });

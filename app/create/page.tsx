@@ -24,6 +24,7 @@ import type { ExtendedLocation } from '@/lib/data/models/location'
 import dynamic from "next/dynamic"
 import { useSession } from '@supabase/auth-helpers-react'
 import { createSupabaseClient } from '@/lib/supabase'
+import { heicTo } from 'heic-to'
 
 // Preset tags list
 const PRESET_TAGS = [
@@ -136,16 +137,22 @@ export default function CreatePost() {
   };
 
   // Handle image selection
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    // Check file types
-    const invalidFiles = files.filter(file => !file.type.startsWith('image/'));
+    // Check file types - allow standard images and HEIC
+    const acceptedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const invalidFiles = files.filter(file => {
+      const isStandardImage = acceptedFormats.includes(file.type.toLowerCase());
+      const isHeic = file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif');
+      return !isStandardImage && !isHeic;
+    });
+    
     if (invalidFiles.length > 0) {
       toast({
-        title: "Error",
-        description: "Please select only image files",
+        title: "Invalid File Format",
+        description: "Please select only JPEG, PNG, GIF, WebP, or HEIC images",
         variant: "destructive",
       });
       return;
@@ -171,16 +178,85 @@ export default function CreatePost() {
       });
     }
 
-    setImageFiles(prev => [...prev, ...filesToAdd]);
-    
-    // Create previews
-    filesToAdd.forEach(file => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreviews(prev => [...prev, reader.result as string]);
-      };
-      reader.readAsDataURL(file);
-    });
+    // Process each file
+    const processedFiles: File[] = [];
+    const previews: string[] = [];
+
+    for (const file of filesToAdd) {
+      try {
+        // Check file size (optional - add a reasonable limit)
+        const maxSizeInMB = 20;
+        if (file.size > maxSizeInMB * 1024 * 1024) {
+          toast({
+            title: "File Too Large",
+            description: `${file.name} is larger than ${maxSizeInMB}MB. Please use a smaller image.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+        
+        // Check if file is HEIC and convert it
+        const isHeic = file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif');
+        let processedFile: File = file;
+        
+        if (isHeic) {
+          try {
+            // Show conversion toast
+            toast({
+              title: "Converting HEIC image...",
+              description: "Please wait while we process your image",
+            });
+            
+            // Convert HEIC to JPEG using heic-to
+            const jpegBlob = await heicTo({
+              blob: file,
+              type: "image/jpeg",
+              quality: 0.9
+            });
+            
+            // Create a new File object with JPEG extension
+            const jpegFileName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+            processedFile = new File([jpegBlob], jpegFileName, { type: 'image/jpeg' });
+            
+            toast({
+              title: "Conversion successful",
+              description: "HEIC image has been converted to JPEG",
+            });
+          } catch (conversionError) {
+            console.error('HEIC conversion failed:', conversionError);
+            toast({
+              title: "HEIC Conversion Failed",
+              description: `Unable to convert ${file.name}. Please convert it to JPEG/PNG manually.`,
+              variant: "destructive",
+            });
+            continue;
+          }
+        }
+        
+        processedFiles.push(processedFile);
+        
+        // Create preview
+        const reader = new FileReader();
+        const preview = await new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(processedFile);
+        });
+        previews.push(preview);
+        
+      } catch (error) {
+        console.error('Error processing file:', error);
+        toast({
+          title: "Error",
+          description: `Failed to process image: ${file.name}`,
+          variant: "destructive",
+        });
+      }
+    }
+
+    // Update state with processed files and previews
+    setImageFiles(prev => [...prev, ...processedFiles]);
+    setImagePreviews(prev => [...prev, ...previews]);
 
     // Reset the input value to allow selecting the same file again
     if (fileInputRef.current) {
@@ -325,7 +401,7 @@ export default function CreatePost() {
             continue
           }
           
-          // Get public URL
+          // Get public URL for the final file
           const { data } = supabase.storage
             .from('posts')
             .getPublicUrl(filePath)
@@ -462,7 +538,7 @@ export default function CreatePost() {
           </div>
           <input 
             type="file" 
-            accept="image/*" 
+            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,.heic,.heif" 
             multiple
             className="hidden" 
             ref={fileInputRef} 
