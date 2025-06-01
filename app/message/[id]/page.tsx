@@ -14,9 +14,11 @@ import {
   type Message 
 } from "@/lib/db/chat"
 import { createSupabaseClient } from "@/lib/supabase"
+import { useNotifications } from "@/components/notification-provider"
 
 export default function MessagePage() {
   const router = useRouter()
+  const { clearNotifications, updateUnreadCount } = useNotifications()
   const params = useParams()
   const conversationId = parseInt(params.id as string)
   const [message, setMessage] = useState("")
@@ -34,21 +36,25 @@ export default function MessagePage() {
     async function loadConversation() {
       try {
         const supabase = createSupabaseClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (user) {
-          setCurrentUserId(user.id)
+        const user = (await supabase.auth.getUser()).data.user
+        if (!user) {
+          router.push('/login')
+          return
         }
-
+        
+        setCurrentUserId(user.id)
         const data = await fetchConversationMessages(conversationId)
-        if (data) {
-          setConversation(data)
-        } else {
-          // Conversation not found or no access
-          router.back()
-        }
+        setConversation(data)
+        
+        // Clear notifications when viewing specific conversation
+        clearNotifications()
+        
+        // Update unread count after marking as read
+        setTimeout(() => {
+          updateUnreadCount()
+        }, 500)
       } catch (error) {
         console.error('Error loading conversation:', error)
-        router.back()
       } finally {
         setLoading(false)
       }
@@ -57,7 +63,7 @@ export default function MessagePage() {
     if (!isNaN(conversationId)) {
       loadConversation()
     }
-  }, [conversationId, router])
+  }, [conversationId, router, clearNotifications, updateUnreadCount])
 
   // Real-time message subscription
   useEffect(() => {

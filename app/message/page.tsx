@@ -9,9 +9,11 @@ import { Badge } from "@/components/ui/badge"
 import { Search, MessageCircle } from "lucide-react"
 import { fetchConversations, type Conversation } from "@/lib/db/chat"
 import { createSupabaseClient } from "@/lib/supabase"
+import { useNotifications } from "@/components/notification-provider"
 
 export default function MessagePage() {
   const router = useRouter()
+  const { clearNotifications, updateUnreadCount } = useNotifications()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -21,6 +23,14 @@ export default function MessagePage() {
       try {
         const data = await fetchConversations()
         setConversations(data)
+        
+        // Clear notifications when viewing message list
+        clearNotifications()
+        
+        // Update unread count after a short delay to ensure any read status updates have been processed
+        setTimeout(() => {
+          updateUnreadCount()
+        }, 500)
       } catch (error) {
         console.error('Error loading conversations:', error)
       } finally {
@@ -29,7 +39,7 @@ export default function MessagePage() {
     }
 
     loadConversations()
-  }, [])
+  }, [clearNotifications, updateUnreadCount])
 
   // Real-time conversation updates
   useEffect(() => {

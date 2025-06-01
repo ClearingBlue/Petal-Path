@@ -266,6 +266,15 @@ export default function CreatePost() {
       return;
     }
 
+    if (imageFiles.length === 0) {
+      toast({
+        title: "Images required",
+        description: "Please upload at least one image for your post",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!selectedLocationId) {
       toast({
         title: "Location required", 
@@ -381,7 +390,7 @@ export default function CreatePost() {
             className="ml-auto" 
             size="sm" 
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || imageFiles.length === 0}
           >
             {isSubmitting ? "Posting..." : "Post"}
           </Button>
@@ -415,7 +424,7 @@ export default function CreatePost() {
 
         {/* Photo upload area */}
         <div className="space-y-2">
-          <Label>Photos (up to 5)</Label>
+          <Label>Photos (up to 5) <span className="text-red-500">*</span></Label>
           <div className="grid grid-cols-2 gap-2">
             {imagePreviews.map((preview, index) => (
               <div key={index} className="aspect-square bg-muted rounded-md relative overflow-hidden group">
@@ -437,12 +446,16 @@ export default function CreatePost() {
             ))}
             {imagePreviews.length < 5 && (
               <div 
-                className="aspect-square bg-muted rounded-md relative overflow-hidden cursor-pointer"
+                className={`aspect-square bg-muted rounded-md relative overflow-hidden cursor-pointer border-2 border-dashed ${
+                  imageFiles.length === 0 ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                } hover:border-gray-400 transition-colors`}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <div className="flex flex-col items-center justify-center h-full">
-                  <ImagePlus className="h-12 w-12 text-muted-foreground mb-2" />
-                  <p className="text-muted-foreground">Add photo</p>
+                  <ImagePlus className={`h-12 w-12 mb-2 ${imageFiles.length === 0 ? 'text-red-400' : 'text-muted-foreground'}`} />
+                  <p className={`${imageFiles.length === 0 ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
+                    {imageFiles.length === 0 ? 'Add photo (required)' : 'Add photo'}
+                  </p>
                 </div>
               </div>
             )}
@@ -455,6 +468,9 @@ export default function CreatePost() {
             ref={fileInputRef} 
             onChange={handleImageChange}
           />
+          {imageFiles.length === 0 && (
+            <p className="text-sm text-red-500">At least one image is required to create a post</p>
+          )}
         </div>
 
         {/* Description */}
@@ -518,8 +534,8 @@ export default function CreatePost() {
                   />
                 )}
               </div>
-            </div>
-            
+              </div>
+              
             {/* Scrollable location list - Now has more space */}
             <div className="flex-1 overflow-y-auto px-4 pb-3 min-h-0">
               <div className="space-y-1.5">
@@ -541,17 +557,17 @@ export default function CreatePost() {
                   </div>
                 )}
               </div>
-            </div>
-            
+              </div>
+
             {/* Fixed create location button */}
             <div className="border-t bg-background p-3">
               <Button variant="outline" className="w-full h-9" onClick={() => {
-                setIsLocationDialogOpen(false)
-                router.push('/create/location')
-              }}>
-                <PlusCircle className="h-4 w-4 mr-2" />
-                Create New Location
-              </Button>
+                  setIsLocationDialogOpen(false)
+                  router.push('/create/location')
+                }}>
+                  <PlusCircle className="h-4 w-4 mr-2" />
+                  Create New Location
+                </Button>
             </div>
           </div>
           

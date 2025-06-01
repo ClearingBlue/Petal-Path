@@ -3,6 +3,7 @@ import './globals.css'
 import { AppInitializer } from '@/components/app-init'
 import { Toaster } from '@/components/ui/toaster'
 import { SupabaseProvider } from '@/components/supabase-provider'
+import { NotificationProvider } from '@/components/notification-provider'
 import { cookies } from 'next/headers'
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
 
@@ -36,9 +37,11 @@ export default async function RootLayout({
     <html lang="en">
       <body suppressHydrationWarning>
         <SupabaseProvider initialSession={session}>
-          {children}
-          <AppInitializer />
-          <Toaster />
+          <NotificationProvider>
+            {children}
+            <AppInitializer />
+            <Toaster />
+          </NotificationProvider>
         </SupabaseProvider>
       </body>
     </html>
