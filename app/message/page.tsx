@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Search, MessageCircle } from "lucide-react"
+import { Search, MessageCircle, ArrowLeft } from "lucide-react"
 import { fetchConversations, type Conversation } from "@/lib/db/chat"
 import { createSupabaseClient } from "@/lib/supabase"
 import { useNotifications } from "@/components/notification-provider"
@@ -98,7 +98,17 @@ export default function MessagePage() {
   return (
     <div className="flex flex-col h-screen bg-background">
       <div className="p-4 border-b">
-        <h1 className="text-2xl font-bold mb-4">Messages</h1>
+        <div className="flex items-center gap-4 mb-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/')}
+            className="rounded-full"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h1 className="text-2xl font-bold">Messages</h1>
+        </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input
