@@ -500,7 +500,7 @@ export default function CreatePost() {
 
         {/* Photo upload area */}
         <div className="space-y-2">
-          <Label>Photos (up to 5) <span className="text-red-500">*</span></Label>
+          <Label>Photos (up to 5)</Label>
           <div className="grid grid-cols-2 gap-2">
             {imagePreviews.map((preview, index) => (
               <div key={index} className="aspect-square bg-muted rounded-md relative overflow-hidden group">
@@ -522,16 +522,12 @@ export default function CreatePost() {
             ))}
             {imagePreviews.length < 5 && (
               <div 
-                className={`aspect-square bg-muted rounded-md relative overflow-hidden cursor-pointer border-2 border-dashed ${
-                  imageFiles.length === 0 ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                } hover:border-gray-400 transition-colors`}
+                className="aspect-square bg-muted rounded-md relative overflow-hidden cursor-pointer border-2 border-dashed border-gray-300 hover:border-gray-400 transition-colors"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <div className="flex flex-col items-center justify-center h-full">
-                  <ImagePlus className={`h-12 w-12 mb-2 ${imageFiles.length === 0 ? 'text-red-400' : 'text-muted-foreground'}`} />
-                  <p className={`${imageFiles.length === 0 ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
-                    {imageFiles.length === 0 ? 'Add photo (required)' : 'Add photo'}
-                  </p>
+                  <ImagePlus className="h-12 w-12 mb-2 text-muted-foreground" />
+                  <p className="text-muted-foreground">Add photo</p>
                 </div>
               </div>
             )}
@@ -544,9 +540,6 @@ export default function CreatePost() {
             ref={fileInputRef} 
             onChange={handleImageChange}
           />
-          {imageFiles.length === 0 && (
-            <p className="text-sm text-red-500">At least one image is required to create a post</p>
-          )}
         </div>
 
         {/* Description */}
