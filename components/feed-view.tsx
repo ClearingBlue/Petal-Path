@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, memo, useRef } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { MessageCircle, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -221,6 +221,7 @@ PostCard.displayName = 'PostCard';
 
 export default function FeedView() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [posts, setPosts] = useState<any[]>([])
   const [userVotes, setUserVotes] = useState<Record<number, "up" | "down" | null>>({})
   const [postScores, setPostScores] = useState<Record<number, number>>({})
@@ -228,11 +229,29 @@ export default function FeedView() {
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
   const [currentImageIndices, setCurrentImageIndices] = useState<Record<number, number>>({})
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [feedType, setFeedType] = useState<FeedType>('hot')
+  const [feedType, setFeedType] = useState<FeedType>(() => {
+    // Check URL parameter for initial feed type
+    const tabParam = searchParams.get('tab')
+    if (tabParam === 'new' || tabParam === 'hot' || tabParam === 'follow') {
+      return tabParam as FeedType
+    }
+    return 'hot' // default
+  })
   const [isLoading, setIsLoading] = useState(false)
   const [savedLocations, setSavedLocations] = useState<Set<number>>(new Set())
   const [reportedPosts, setReportedPosts] = useState<Set<number>>(new Set())
   const lastFetchRef = useRef<{ type: FeedType; timestamp: number } | null>(null)
+
+  // Clear the tab parameter from URL after reading it
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (tabParam) {
+      // Remove the tab parameter from URL without affecting browser history
+      const newUrl = new URL(window.location.href)
+      newUrl.searchParams.delete('tab')
+      window.history.replaceState({}, '', newUrl.pathname)
+    }
+  }, [searchParams])
 
   // Load cached posts if available
   const loadCachedPosts = useCallback((type: FeedType): any[] | null => {

@@ -167,9 +167,9 @@ export async function fetchUserSavedLocations(userId: string, includePostImages 
   if (error) throw new Error(error.message)
   
   // Always fetch images for saved locations for better UX
-  const locations = await Promise.all(
-    (data ?? [])
-      .filter(item => item.locations)
+    const locations = await Promise.all(
+      (data ?? [])
+        .filter(item => item.locations)
       .map(async item => {
         const location = mapRowToLocationFast(item.locations)
         // Try to get a recent post image for this location
@@ -179,8 +179,8 @@ export async function fetchUserSavedLocations(userId: string, includePostImages 
         }
         return location
       })
-  )
-  return locations
+    )
+    return locations
 }
 
 export async function toggleLocationSave(locationId: number): Promise<{ isSaved: boolean }> {
@@ -302,8 +302,8 @@ export async function fetchUserVisitedLocations(userId: string, includePostImage
       if (imageUrl) {
         location.imageUrl = imageUrl
       }
-      return location
-    })
+    return location
+  })
   )
   
   return locationsWithImages

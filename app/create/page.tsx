@@ -35,7 +35,7 @@ const PRESET_TAGS = [
 const LocationMapWithNoSSR = dynamic(() => import("@/components/location-map"), {
   ssr: false,
   loading: () => (
-    <div className="h-[300px] bg-muted rounded-md flex items-center justify-center">
+    <div className="h-[180px] bg-muted rounded-md flex items-center justify-center">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
     </div>
   ),
@@ -221,13 +221,27 @@ export default function CreatePost() {
   
   // Handle search input
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value.toLowerCase());
+    setSearchTerm(e.target.value);
   };
   
-  // Filter locations list
-  const filteredLocations = locationsList.filter((loc) =>
-    loc.name.toLowerCase().includes(searchTerm)
-  )
+  // Filter locations list with improved partial matching
+  const filteredLocations = locationsList.filter((loc) => {
+    const search = searchTerm.toLowerCase();
+    const locationName = loc.name.toLowerCase();
+    
+    // Support multiple search strategies:
+    // 1. Exact substring match (current behavior)
+    if (locationName.includes(search)) return true;
+    
+    // 2. Match if search terms are found as word beginnings
+    const searchWords = search.split(' ').filter(word => word.length > 0);
+    const locationWords = locationName.split(' ');
+    
+    // Check if all search words match the beginning of any location words
+    return searchWords.every(searchWord => 
+      locationWords.some(locationWord => locationWord.startsWith(searchWord))
+    );
+  });
 
   // Submit form
   const handleSubmit = async () => {
@@ -337,8 +351,8 @@ export default function CreatePost() {
 
       if (typeof window !== 'undefined') localStorage.removeItem('post-draft')
 
-      // Redirect to Feed page
-      router.push("/");
+      // Redirect to Feed page with new tab selected
+      router.push("/?tab=new");
       
     } catch (error) {
       console.error("Posting failed:", error);
@@ -476,27 +490,27 @@ export default function CreatePost() {
 
       {/* Location selection dialog */}
       <Dialog open={isLocationDialogOpen} onOpenChange={setIsLocationDialogOpen}>
-        <DialogContent className="sm:max-w-md w-[calc(100vw-2rem)] max-w-md max-h-[90vh] overflow-hidden flex flex-col mx-4">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-md max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="p-4 pb-0">
             <DialogTitle>Select Location</DialogTitle>
           </DialogHeader>
           
-          <div className="overflow-y-auto flex-1 pr-1 -mr-1">
-            <div className="space-y-4">
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-4 pt-2">
               {/* Search */}
-              <div className="relative">
+              <div className="relative mb-3">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input 
                   id="locationSearch" 
                   placeholder="Search location..." 
-                  className="pl-8"
+                  className="pl-8 h-9"
                   value={searchTerm}
                   onChange={handleSearchChange}
                 />
               </div>
               
-              {/* Map */}
-              <div className="w-full h-[30vh] sm:h-[300px]">
+              {/* Map - Made more compact */}
+              <div className="w-full h-[20vh] sm:h-[180px] mb-3 rounded-md overflow-hidden">
                 {isLocationDialogOpen && (
                   <LocationMapWithNoSSR
                     selectedLocation={formData.location}
@@ -504,15 +518,17 @@ export default function CreatePost() {
                   />
                 )}
               </div>
-              
-              {/* Location list */}
-              <div className="space-y-2">
+            </div>
+            
+            {/* Scrollable location list - Now has more space */}
+            <div className="flex-1 overflow-y-auto px-4 pb-3 min-h-0">
+              <div className="space-y-1.5">
                 {filteredLocations.length > 0 ? (
                   filteredLocations.map((location) => (
                     <Button
                       key={location.id}
                       variant={formData.location === location.name ? 'default' : 'outline'}
-                      className="w-full justify-start text-left"
+                      className="w-full justify-start text-left h-9"
                       onClick={() => confirmLocation(location.name)}
                     >
                       <MapPin className="h-4 w-4 min-w-4 mr-2 flex-shrink-0" />
@@ -521,26 +537,26 @@ export default function CreatePost() {
                   ))
                 ) : (
                   <div className="py-4 text-center">
-                    <p className="text-muted-foreground">No results for "{searchTerm}"</p>
+                    <p className="text-muted-foreground text-sm">No results for "{searchTerm}"</p>
                   </div>
                 )}
               </div>
-
-              {/* Create new location action */}
-              <div className="flex justify-center pt-4">
-                <Button variant="outline" className="w-full" onClick={() => {
-                  setIsLocationDialogOpen(false)
-                  router.push('/create/location')
-                }}>
-                  <PlusCircle className="h-4 w-4 mr-2" />
-                  Create New Location
-                </Button>
-              </div>
+            </div>
+            
+            {/* Fixed create location button */}
+            <div className="border-t bg-background p-3">
+              <Button variant="outline" className="w-full h-9" onClick={() => {
+                setIsLocationDialogOpen(false)
+                router.push('/create/location')
+              }}>
+                <PlusCircle className="h-4 w-4 mr-2" />
+                Create New Location
+              </Button>
             </div>
           </div>
           
-          <DialogFooter className="sm:justify-end mt-4">
-            <Button variant="secondary" onClick={() => setIsLocationDialogOpen(false)}>Cancel</Button>
+          <DialogFooter className="p-4 pt-0">
+            <Button variant="secondary" size="sm" onClick={() => setIsLocationDialogOpen(false)}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

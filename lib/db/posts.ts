@@ -74,7 +74,7 @@ async function fetchPostsRanked(): Promise<Post[]> {
   try {
     // Fetch recent posts with their data
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-    
+  
     const { data: posts, error } = await supabase
       .from('posts')
       .select(`
@@ -91,7 +91,7 @@ async function fetchPostsRanked(): Promise<Post[]> {
       .gte('created_at', oneWeekAgo)
       .order('created_at', { ascending: false })
       .limit(100)
-    
+  
     if (error) throw error
     
     if (!posts || posts.length === 0) return []
@@ -128,7 +128,7 @@ async function fetchPostsRanked(): Promise<Post[]> {
       // Calculate time decay (decreases over 7 days)
       const ageInDays = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60 * 24)
       const timeDecay = Math.max(0.1, 1 - (ageInDays / 7))
-      
+  
       // Calculate final ranking score
       const rankingScore = (voteScore + commentScore) * timeDecay
       
@@ -250,8 +250,8 @@ export async function fetchTopPostsByLocation(locationId: number, limit: number 
     
     const { data: posts, error } = await supabase
       .from('posts')
-      .select(`
-        id,
+    .select(`
+      id,
         title,
         description,
         tags,
@@ -260,8 +260,8 @@ export async function fetchTopPostsByLocation(locationId: number, limit: number 
         location_id,
         locations(id,name),
         post_images(url)
-      `)
-      .eq('location_id', locationId)
+    `)
+    .eq('location_id', locationId)
       .gte('created_at', oneWeekAgo)
       .order('created_at', { ascending: false })
 
@@ -308,18 +308,18 @@ export async function fetchTopPostsByLocation(locationId: number, limit: number 
     console.error('Error fetching top posts by location:', error)
     // Fallback: just return most recent posts
     const { data, error: fallbackError } = await supabase
-      .from('posts')
-      .select(`
-        id,
-        title,
-        description,
-        tags,
-        created_at,
-        user_id,
-        locations(id,name),
-        post_images(url)
-      `)
-      .eq('location_id', locationId)
+    .from('posts')
+    .select(`
+      id,
+      title,
+      description,
+      tags,
+      created_at,
+      user_id,
+      locations(id,name),
+      post_images(url)
+    `)
+    .eq('location_id', locationId)
       .order('created_at', { ascending: false })
       .limit(limit)
 
@@ -408,7 +408,7 @@ export async function createPost(data: {
   if (!completePost) {
     throw new Error('Failed to fetch created post')
   }
-  
+
   return completePost
 }
 
@@ -481,8 +481,8 @@ async function getVoteCountsForPosts(postIds: number[]): Promise<Map<number, Vot
       .from('post_likes')
       .select('post_id, vote_type')
       .in('post_id', postIds)
-    
-    if (error) {
+  
+  if (error) {
       console.warn('Error fetching vote counts:', error)
       // Return empty vote data for all posts
       const voteMap = new Map<number, VoteData>()
@@ -493,7 +493,7 @@ async function getVoteCountsForPosts(postIds: number[]): Promise<Map<number, Vot
     }
     
     // Calculate vote counts for each post
-    const voteMap = new Map<number, VoteData>()
+  const voteMap = new Map<number, VoteData>()
     
     postIds.forEach(postId => {
       const postVotes = votes?.filter(v => v.post_id === postId) || []
@@ -502,9 +502,9 @@ async function getVoteCountsForPosts(postIds: number[]): Promise<Map<number, Vot
       const score = upvotes - downvotes
       
       voteMap.set(postId, { upvotes, downvotes, score })
-    })
-    
-    return voteMap
+  })
+  
+  return voteMap
   } catch (error) {
     console.warn('Vote counts not available:', error)
     // Return empty vote data for all posts
@@ -532,17 +532,17 @@ export async function getUserVotes(postIds: number[]): Promise<Map<number, 'up' 
       .eq('user_id', user.id)
       .in('post_id', postIds)
 
-    if (error) {
+  if (error) {
       console.warn('Error fetching user votes:', error)
-      return new Map()
-    }
+    return new Map()
+  }
 
-    const voteMap = new Map<number, 'up' | 'down'>()
+  const voteMap = new Map<number, 'up' | 'down'>()
     votes?.forEach((vote) => {
-      voteMap.set(vote.post_id, vote.vote_type as 'up' | 'down')
-    })
+    voteMap.set(vote.post_id, vote.vote_type as 'up' | 'down')
+  })
 
-    return voteMap
+  return voteMap
   } catch (error) {
     console.warn('User votes not available:', error)
     return new Map()
