@@ -2,17 +2,16 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Settings, Flower, MapPin, MessageCircle, Inbox, Bookmark } from "lucide-react"
+import { Settings, Flower, MapPin, MessageCircle, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
-import { fetchPostsByUser } from "@/lib/db/posts"
+import { fetchPostsByUser, type Post } from "@/lib/db/posts"
 import { fetchUserVisitedLocations, fetchUserSavedLocations } from "@/lib/db/user-locations"
 import { getUserStats, type UserStats } from "@/lib/db/follows"
-import type { Post } from "@/lib/data/models/post"
 import type { ExtendedLocation } from "@/lib/data/models/location"
 
 export default function ProfileView() {
@@ -38,8 +37,8 @@ export default function ProfileView() {
         if (userProfile) {
           const [posts, locations, saved, stats] = await Promise.all([
             fetchPostsByUser(userProfile.id),
-            fetchUserVisitedLocations(userProfile.id),
-            fetchUserSavedLocations(userProfile.id),
+            fetchUserVisitedLocations(userProfile.id, true),
+            fetchUserSavedLocations(userProfile.id, true),
             getUserStats(userProfile.id)
           ])
           setUserPosts(posts)
@@ -118,14 +117,6 @@ export default function ProfileView() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => router.push("/inbox")}
-              className="hover:bg-accent transition-colors"
-            >
-              <Inbox className="h-4 w-4" />
-            </Button>
             <Button variant="outline" size="icon" onClick={handleSettingsClick}>
               <Settings className="h-4 w-4" />
             </Button>

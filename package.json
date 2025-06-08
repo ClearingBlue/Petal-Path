@@ -49,6 +49,7 @@
     "date-fns": "4.1.0",
     "embla-carousel-react": "8.5.1",
     "framer-motion": "^12.6.5",
+    "heic-to": "^1.1.13",
     "input-otp": "1.4.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.454.0",

@@ -1,141 +1,178 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Search, MoreVertical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-// Removed getCurrentUser import - using real auth instead
+import { Search, MessageCircle, ArrowLeft } from "lucide-react"
+import { fetchConversations, type Conversation } from "@/lib/db/chat"
+import { createSupabaseClient } from "@/lib/supabase"
+import { useNotifications } from "@/components/notification-provider"
 
 export default function MessagePage() {
   const router = useRouter()
-  // TODO: Replace with real user data from auth
+  const { clearNotifications, updateUnreadCount } = useNotifications()
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
 
-  // Mock contacts data
-  const contacts = [
-    {
-      id: 1,
-      user: {
-        id: 2,
-        name: "Sarah Chen",
-        username: "sarahchen",
-        avatar: "https://placekitten.com/100/100",
-        isOnline: true,
-      },
-      lastMessage: "Hey, are you going to the campus event tomorrow?",
-      timestamp: "2m ago",
-      unread: true,
-    },
-    {
-      id: 2,
-      user: {
-        id: 3,
-        name: "Michael Park",
-        username: "michaelpark",
-        avatar: "https://placekitten.com/101/101",
-        isOnline: false,
-      },
-      lastMessage: "Thanks for sharing that location!",
-      timestamp: "1h ago",
-      unread: false,
-    },
-    {
-      id: 3,
-      user: {
-        id: 4,
-        name: "Emma Wilson",
-        username: "emmaw",
-        avatar: "https://placekitten.com/102/102",
-        isOnline: true,
-      },
-      lastMessage: "Did you see the new study spot?",
-      timestamp: "3h ago",
-      unread: true,
-    },
-  ]
+  useEffect(() => {
+    async function loadConversations() {
+      try {
+        const data = await fetchConversations()
+        setConversations(data)
+        
+        // Clear notifications when viewing message list
+        clearNotifications()
+        
+        // Update unread count after a short delay to ensure any read status updates have been processed
+        setTimeout(() => {
+          updateUnreadCount()
+        }, 500)
+      } catch (error) {
+        console.error('Error loading conversations:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
 
-  const handleContactClick = (contactId: number) => {
-    router.push(`/message/${contactId}`)
+    loadConversations()
+  }, [clearNotifications, updateUnreadCount])
+
+  // Real-time conversation updates
+  useEffect(() => {
+    const supabase = createSupabaseClient()
+    
+    const subscription = supabase
+      .channel('conversations-updates')
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'messages'
+        }, 
+        () => {
+          // Refresh conversations when any message is sent
+          fetchConversations().then(setConversations)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  const filteredConversations = conversations.filter(conv =>
+    conv.otherUser.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    conv.otherUser.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    conv.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
+
+    if (diffInHours < 24) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    } else if (diffInHours < 168) { // 7 days
+      return date.toLocaleDateString([], { weekday: 'short' })
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-muted-foreground">Loading conversations...</div>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="flex-1 overflow-hidden">
-      <div className="h-full flex flex-col">
-        {/* Header */}
-        <div className="border-b p-4">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.back()}
-              className="hover:bg-accent"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="flex-1">
-              <h1 className="text-xl font-bold">Direct Messages</h1>
-              <p className="text-sm text-muted-foreground">Chat with your connections</p>
-            </div>
-            <Button variant="ghost" size="icon" className="hover:bg-accent">
-              <MoreVertical className="h-4 w-4" />
-            </Button>
-          </div>
+    <div className="flex flex-col h-screen bg-background">
+      <div className="p-4 border-b">
+        <div className="flex items-center gap-4 mb-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/')}
+            className="rounded-full"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h1 className="text-2xl font-bold">Messages</h1>
         </div>
-
-        {/* Search */}
-        <div className="p-4 border-b">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search conversations"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
         </div>
+      </div>
 
-        {/* Contacts List */}
-        <div className="flex-1 overflow-auto">
-          {contacts.map((contact) => (
-            <div
-              key={contact.id}
-              className="p-4 border-b cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => handleContactClick(contact.id)}
-            >
-              <div className="flex items-start gap-3">
-                <div className="relative">
-                  <Avatar className="w-12 h-12">
-                    <AvatarImage src={contact.user.avatar} />
-                    <AvatarFallback>{contact.user.name.charAt(0)}</AvatarFallback>
+      <div className="flex-1 overflow-y-auto">
+        {filteredConversations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center p-8">
+            <MessageCircle className="h-16 w-16 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No conversations yet</h3>
+            <p className="text-muted-foreground">
+              Start a conversation by visiting someone's profile
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {filteredConversations.map((conversation) => (
+              <div
+                key={conversation.id}
+                className="p-4 hover:bg-muted/50 cursor-pointer transition-colors"
+                onClick={() => router.push(`/message/${conversation.id}`)}
+              >
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-12 w-12">
+                    <AvatarImage 
+                      src={conversation.otherUser.avatar_url || ''} 
+                      alt={conversation.otherUser.full_name || conversation.otherUser.username || 'User'} 
+                    />
+                    <AvatarFallback>
+                      {conversation.otherUser.full_name?.charAt(0) || 
+                       conversation.otherUser.username?.charAt(0) || '?'}
+                    </AvatarFallback>
                   </Avatar>
-                  {contact.user.isOnline && (
-                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold">{contact.user.name}</div>
-                    <div className="text-xs text-muted-foreground">{contact.timestamp}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold truncate">
+                        {conversation.otherUser.full_name || conversation.otherUser.username || 'Unknown User'}
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        {conversation.unreadCount > 0 && (
+                          <Badge variant="destructive" className="text-xs">
+                            {conversation.unreadCount}
+                          </Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {formatTimestamp(conversation.lastMessageAt)}
+                        </span>
+                      </div>
+                    </div>
                     <p className="text-sm text-muted-foreground truncate">
-                      {contact.lastMessage}
+                      {conversation.lastMessage || "No messages yet"}
                     </p>
-                    {contact.unread && (
-                      <Badge variant="secondary" className="ml-auto">
-                        New
-                      </Badge>
-                    )}
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

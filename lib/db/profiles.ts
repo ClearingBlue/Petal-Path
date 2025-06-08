@@ -255,15 +255,45 @@ export async function uploadAvatar(userId: string, file: File): Promise<string> 
   const supabase = createSupabaseClient()
   const bucket = supabase.storage.from('avatars')
   
-  // Create unique filename
+  // Create unique filename with timestamp to avoid caching issues
   const fileExt = file.name.split('.').pop()
-  const fileName = `${userId}.${fileExt}`
+  const timestamp = Date.now()
+  // Format: userId/timestamp.ext to match storage policies
+  const fileName = `${userId}/${timestamp}.${fileExt}`
   
-  const { error: uploadError } = await bucket.upload(fileName, file, { upsert: true })
-  if (uploadError) throw new Error(uploadError.message)
+  // First, try to delete old avatars for this user
+  try {
+    const { data: existingFiles } = await bucket.list(userId, {
+      limit: 100,
+    })
+    
+    // Delete old avatars
+    if (existingFiles && existingFiles.length > 0) {
+      const filesToDelete = existingFiles.map(file => `${userId}/${file.name}`)
+      
+      if (filesToDelete.length > 0) {
+        await bucket.remove(filesToDelete)
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to clean up old avatars:', error)
+  }
   
-  const { data } = bucket.getPublicUrl(fileName)
-  return data.publicUrl
+  // Upload the new file with upsert
+  const { data, error: uploadError } = await bucket.upload(fileName, file, {
+    cacheControl: '3600',
+    upsert: true,
+    contentType: file.type
+  })
+  
+  if (uploadError) {
+    console.error('Avatar upload error:', uploadError)
+    throw new Error(`Failed to upload avatar: ${uploadError.message}`)
+  }
+  
+  // Get public URL with timestamp to force refresh
+  const { data: urlData } = bucket.getPublicUrl(fileName)
+  return `${urlData.publicUrl}?t=${timestamp}`
 }
 
 export async function checkUsernameAvailable(username: string, currentUserId?: string): Promise<boolean> {

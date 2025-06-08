@@ -8,9 +8,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchProfileById, fetchCurrentUserProfile, type Profile } from "@/lib/db/profiles"
-import { fetchPostsByUser } from "@/lib/db/posts"
+import { fetchPostsByUser, type Post } from "@/lib/db/posts"
 import { toggleFollow, isFollowing, getUserStats, type UserStats } from "@/lib/db/follows"
-import type { Post } from "@/lib/data/models/post"
+import { startConversationWithUser } from "@/lib/db/chat"
 import { toast } from "@/components/ui/use-toast"
 
 export default function OtherUserView({ params }: { params: { id: string } }) {
@@ -90,8 +90,28 @@ export default function OtherUserView({ params }: { params: { id: string } }) {
     router.push(`/post/${postId}`)
   }
 
-  const handleMessageClick = () => {
-    router.push(`/message/${unwrappedParams.id}`)
+  const handleMessageClick = async () => {
+    if (!profile) return
+    
+    try {
+      const conversationId = await startConversationWithUser(profile.id)
+      if (conversationId) {
+        router.push(`/message/${conversationId}`)
+      } else {
+        toast({
+          title: "Error",
+          description: "Could not start conversation. Please try again.",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error('Error starting conversation:', error)
+      toast({
+        title: "Error",
+        description: "Failed to start conversation. Please try again.",
+        variant: "destructive"
+      })
+    }
   }
 
   const handleFollowClick = async () => {

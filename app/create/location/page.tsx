@@ -8,7 +8,7 @@ import { toast } from "@/components/ui/use-toast"
 import Link from "next/link"
 import dynamic from "next/dynamic"
 
-// 动态导入创建地图组件，避免SSR问题
+// Dynamic import to avoid SSR issues
 const CreateLocationMapWithNoSSR = dynamic(
   () => import("@/components/create-location-map"),
   {
@@ -25,20 +25,20 @@ export default function CreateLocationPage() {
   const router = useRouter()
   const [locationCreated, setLocationCreated] = useState(false)
 
-  // 监听位置创建完成后返回上一页
+  // Listen for location creation completion and go back
   useEffect(() => {
     if (locationCreated) {
       toast({
-        title: "新地点已创建",
-        description: "你可以在创建帖子时选择这个地点",
+        title: "Location created",
+        description: "You can now select this location when creating posts",
       })
       
-      // 返回前一页
+      // Go back to previous page
       router.back()
     }
   }, [locationCreated, router])
 
-  // 处理位置创建完成
+  // Handle location creation completion
   const handleLocationCreated = (locationName: string) => {
     setLocationCreated(true)
   }
@@ -50,21 +50,23 @@ export default function CreateLocationPage() {
           <Button variant="ghost" size="icon" className="mr-2" asChild>
             <Link href="/create">
               <ArrowLeft className="h-5 w-5" />
-              <span className="sr-only">返回</span>
+              <span className="sr-only">Back</span>
             </Link>
           </Button>
-          <span className="text-lg font-semibold">创建新地点</span>
+          <span className="text-lg font-semibold">Create New Location</span>
         </div>
       </header>
 
       <div className="flex-1 p-4 space-y-6 max-w-2xl mx-auto w-full">
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-3">
           <MapPin className="h-6 w-6 text-primary shrink-0 mt-1" />
-          <div>
-            <h2 className="text-xl font-semibold">创建自定义地点</h2>
-            <p className="text-muted-foreground">
-              在地图上选择位置并输入地点名称。创建后你可以在发帖时选择这个地点。
-            </p>
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold">Add a Custom Location</h2>
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>• Enter a name for your location</p>
+              <p>• Add the location address</p>
+              <p>• Tap on the map to add a pin</p>
+            </div>
           </div>
         </div>
 

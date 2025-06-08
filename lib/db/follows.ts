@@ -91,21 +91,38 @@ export async function isFollowing(followingId: string): Promise<boolean> {
 export async function getUserStats(userId: string): Promise<UserStats> {
   const supabase = createSupabaseClient()
   
-  const { data, error } = await supabase
-    .rpc('get_user_stats', { user_id: userId })
-    .single()
-
-  if (error) {
+  try {
+    // Get follower count
+    const { count: followersCount, error: followersError } = await supabase
+      .from('follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('following_id', userId)
+    
+    // Get following count
+    const { count: followingCount, error: followingError } = await supabase
+      .from('follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('follower_id', userId)
+    
+    // Get posts count
+    const { count: postsCount, error: postsError } = await supabase
+      .from('posts')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+    
+    if (followersError || followingError || postsError) {
+      console.error('Error fetching user stats:', { followersError, followingError, postsError })
+      return { followers_count: 0, following_count: 0, posts_count: 0 }
+    }
+    
+    return {
+      followers_count: followersCount || 0,
+      following_count: followingCount || 0,
+      posts_count: postsCount || 0
+    }
+  } catch (error) {
     console.error('Error fetching user stats:', error)
     return { followers_count: 0, following_count: 0, posts_count: 0 }
-  }
-
-  const result = data as { followers_count: number; following_count: number; posts_count: number }
-  
-  return {
-    followers_count: Number(result.followers_count) || 0,
-    following_count: Number(result.following_count) || 0,
-    posts_count: Number(result.posts_count) || 0
   }
 }
 

@@ -122,6 +122,9 @@ importers:
       framer-motion:
         specifier: ^12.6.5
         version: 12.10.1(react-dom@19.0.0-rc.1(react@19.0.0-rc.1))(react@19.0.0-rc.1)
+      heic-to:
+        specifier: ^1.1.13
+        version: 1.1.13
       input-otp:
         specifier: 1.4.1
         version: 1.4.1(react-dom@19.0.0-rc.1(react@19.0.0-rc.1))(react@19.0.0-rc.1)
@@ -2113,6 +2116,9 @@ packages:
   hasown@2.0.2:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
+
+  heic-to@1.1.13:
+    resolution: {integrity: sha512-7BBM+UOWbAfzpmRn4q44DBTU8JIDds3c2BGSmCV1FqDAK6P1ANgJ3iM8da5A9evX/DtIXinKzJ1vL1IljQjaEw==}
 
   html-encoding-sniffer@3.0.0:
     resolution: {integrity: sha512-oWv4T4yJ52iKrufjnyZPkrN0CH3QnrUqdB6In1g5Fe1mia8GmF36gnfNySxoZtxD5+NmYw1EElVXiBk93UeskA==}
@@ -5268,6 +5274,8 @@ snapshots:
   hasown@2.0.2:
     dependencies:
       function-bind: 1.1.2
+
+  heic-to@1.1.13: {}
 
   html-encoding-sniffer@3.0.0:
     dependencies:

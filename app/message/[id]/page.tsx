@@ -1,73 +1,129 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ArrowLeft, Send } from "lucide-react"
-
-interface Message {
-  id: string
-  content: string
-  senderId: string
-  timestamp: string
-}
-
-interface User {
-  id: string
-  name: string
-  avatar: string
-  online: boolean
-}
-
-const mockUser: User = {
-  id: "1",
-  name: "John Doe",
-  avatar: "https://placekitten.com/200/200",
-  online: true
-}
-
-const mockMessages: Message[] = [
-  {
-    id: "1",
-    content: "Hey there! How are you?",
-    senderId: "2",
-    timestamp: "10:30 AM"
-  },
-  {
-    id: "2",
-    content: "I'm good, thanks! How about you?",
-    senderId: "1",
-    timestamp: "10:31 AM"
-  },
-  {
-    id: "3",
-    content: "Doing great! Just working on some new features for PetalPath.",
-    senderId: "2",
-    timestamp: "10:32 AM"
-  }
-]
+import { 
+  fetchConversationMessages, 
+  sendMessage, 
+  markConversationAsRead,
+  type ConversationWithMessages,
+  type Message 
+} from "@/lib/db/chat"
+import { createSupabaseClient } from "@/lib/supabase"
+import { useNotifications } from "@/components/notification-provider"
 
 export default function MessagePage() {
   const router = useRouter()
+  const { clearNotifications, updateUnreadCount } = useNotifications()
   const params = useParams()
-  const userId = parseInt(params.id as string)
+  const conversationId = parseInt(params.id as string)
   const [message, setMessage] = useState("")
-  const [messages, setMessages] = useState<Message[]>(mockMessages)
+  const [conversation, setConversation] = useState<ConversationWithMessages | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const handleSendMessage = () => {
-    if (!message.trim()) return
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      content: message,
-      senderId: userId.toString(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  useEffect(() => {
+    async function loadConversation() {
+      try {
+        const supabase = createSupabaseClient()
+        const user = (await supabase.auth.getUser()).data.user
+        if (!user) {
+          router.push('/login')
+          return
+        }
+        
+        setCurrentUserId(user.id)
+        const data = await fetchConversationMessages(conversationId)
+        setConversation(data)
+        
+        // Clear notifications when viewing specific conversation
+        clearNotifications()
+        
+        // Update unread count after marking as read
+        setTimeout(() => {
+          updateUnreadCount()
+        }, 500)
+      } catch (error) {
+        console.error('Error loading conversation:', error)
+      } finally {
+        setLoading(false)
+      }
     }
 
-    setMessages([...messages, newMessage])
-    setMessage("")
+    if (!isNaN(conversationId)) {
+      loadConversation()
+    }
+  }, [conversationId, router, clearNotifications, updateUnreadCount])
+
+  // Real-time message subscription
+  useEffect(() => {
+    if (!conversation) return
+
+    const supabase = createSupabaseClient()
+    
+    const subscription = supabase
+      .channel(`messages:${conversationId}`)
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`
+        }, 
+        (payload) => {
+          const newMessage = payload.new as Message
+          setConversation(prev => prev ? {
+            ...prev,
+            messages: [...prev.messages, newMessage]
+          } : null)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [conversation, conversationId])
+
+  // Mark as read when viewing
+  useEffect(() => {
+    if (conversation && !loading) {
+      markConversationAsRead(conversationId)
+    }
+  }, [conversation, conversationId, loading])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [conversation?.messages])
+
+  const handleSendMessage = async () => {
+    if (!message.trim() || sending || !conversation) return
+
+    setSending(true)
+    try {
+      const newMessage = await sendMessage(conversationId, message)
+      if (newMessage) {
+        setConversation(prev => prev ? {
+          ...prev,
+          messages: [...prev.messages, newMessage]
+        } : null)
+        setMessage("")
+      }
+    } catch (error) {
+      console.error('Error sending message:', error)
+    } finally {
+      setSending(false)
+    }
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -75,6 +131,31 @@ export default function MessagePage() {
       e.preventDefault()
       handleSendMessage()
     }
+  }
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-muted-foreground">Loading conversation...</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!conversation) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        <div className="flex items-center justify-center flex-1">
+          <div className="text-muted-foreground">Conversation not found</div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -88,59 +169,83 @@ export default function MessagePage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <Avatar className="h-6 w-6">
-          <AvatarImage src={mockUser.avatar} alt={mockUser.name} />
-          <AvatarFallback>{mockUser.name[0]}</AvatarFallback>
+        <Avatar className="h-10 w-10">
+          <AvatarImage 
+            src={conversation.otherUser.avatar_url || ''} 
+            alt={conversation.otherUser.full_name || conversation.otherUser.username || 'User'} 
+          />
+          <AvatarFallback>
+            {conversation.otherUser.full_name?.charAt(0) || 
+             conversation.otherUser.username?.charAt(0) || '?'}
+          </AvatarFallback>
         </Avatar>
         <div className="flex-1">
-          <h2 className="font-semibold">{mockUser.name}</h2>
+          <h2 className="font-semibold">
+            {conversation.otherUser.full_name || conversation.otherUser.username || 'Unknown User'}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            {mockUser.online ? "Online" : "Offline"}
+            @{conversation.otherUser.username || 'unknown'}
           </p>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex gap-2 ${
-              msg.senderId === userId.toString() ? "justify-end" : "justify-start"
-            }`}
-          >
-            {msg.senderId !== userId.toString() && (
-              <Avatar className="h-6 w-6">
-                <AvatarImage src={mockUser.avatar} alt={mockUser.name} />
-                <AvatarFallback>{mockUser.name[0]}</AvatarFallback>
-              </Avatar>
-            )}
+        {conversation.messages.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            No messages yet. Start the conversation!
+          </div>
+        ) : (
+          conversation.messages.map((msg) => (
             <div
-              className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-                msg.senderId === userId.toString()
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
+              key={msg.id}
+              className={`flex gap-2 ${
+                msg.senderId === currentUserId ? "justify-end" : "justify-start"
               }`}
             >
-              <p className="text-sm">{msg.content}</p>
-              <p className="text-xs mt-1 opacity-70">{msg.timestamp}</p>
+              {msg.senderId !== currentUserId && (
+                <Avatar className="h-8 w-8">
+                  <AvatarImage 
+                    src={conversation.otherUser.avatar_url || ''} 
+                    alt={conversation.otherUser.full_name || conversation.otherUser.username || 'User'} 
+                  />
+                  <AvatarFallback>
+                    {conversation.otherUser.full_name?.charAt(0) || 
+                     conversation.otherUser.username?.charAt(0) || '?'}
+                  </AvatarFallback>
+                </Avatar>
+              )}
+              <div
+                className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                  msg.senderId === currentUserId
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted"
+                }`}
+              >
+                <p className="text-sm">{msg.content}</p>
+                <p className="text-xs mt-1 opacity-70">
+                  {formatTimestamp(msg.createdAt)}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
+        <div ref={messagesEndRef} />
       </div>
 
       <div className="p-4 border-t">
         <div className="flex gap-2">
           <Input
-            placeholder="Message..."
+            placeholder="Type a message..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyPress={handleKeyPress}
             className="flex-1"
+            disabled={sending}
           />
           <Button
             size="icon"
             onClick={handleSendMessage}
-            disabled={!message.trim()}
+            disabled={!message.trim() || sending}
           >
             <Send className="h-4 w-4" />
           </Button>

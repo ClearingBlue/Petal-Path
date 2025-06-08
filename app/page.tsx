@@ -2,17 +2,20 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import { MapPin, Plus, PenSquare } from "lucide-react"
+import { MapPin, Plus, PenSquare, MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import MapView from "@/components/map-view"
 import FeedView from "@/components/feed-view"
 import ProfileView from "@/components/profile-view"
 import { useRouter } from "next/navigation"
 import { getUserLocation } from "@/lib/services/geolocation"
+import { useNotifications } from "@/components/notification-provider"
 
 export default function Home() {
   const router = useRouter()
+  const { unreadCount, clearNotifications } = useNotifications()
   const [isLocationLoaded, setIsLocationLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState("feed")
 
@@ -55,6 +58,11 @@ export default function Home() {
     }
   }, [activeTab, router])
 
+  const handleMessageClick = () => {
+    clearNotifications()
+    router.push("/message")
+  }
+
   return (
     <main className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -64,7 +72,23 @@ export default function Home() {
             <span className="text-xl font-bold">PetalPath</span>
           </Link>
           <div className="ml-auto flex items-center gap-2">
-            {/* 已删除Inbox图标 */}
+            {/* Message icon with unread badge */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative"
+              onClick={handleMessageClick}
+            >
+              <MessageCircle className="h-5 w-5" />
+              {unreadCount > 0 && (
+                <Badge 
+                  variant="destructive" 
+                  className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs"
+                >
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Badge>
+              )}
+            </Button>
           </div>
         </div>
       </header>
@@ -86,7 +110,7 @@ export default function Home() {
         <TabsContent value="profile" className="flex-1 p-0 data-[state=active]:flex data-[state=active]:flex-col">
           {activeTab === "profile" && <ProfileView />}
         </TabsContent>
-        <TabsList className="fixed bottom-0 left-0 right-0 h-16 grid w-full grid-cols-4 gap-4 border-t bg-background p-2">
+        <TabsList className="fixed bottom-0 left-0 right-0 h-auto min-h-16 grid w-full grid-cols-4 gap-4 border-t bg-background p-2 pb-safe">
           <TabsTrigger
             value="map"
             className="flex flex-col items-center justify-center rounded-md data-[state=active]:bg-muted"

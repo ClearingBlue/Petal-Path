@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, memo } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useCallback, memo, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { MessageCircle, MapPin, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -13,9 +13,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ReportDialog } from "@/components/report-dialog"
 import { fetchPosts, togglePostVote, getUserVotes, type FeedType } from '@/lib/db/posts'
 import { fetchCurrentUserProfile } from '@/lib/db/profiles'
 import { toggleLocationSave, getUserSavedLocations } from '@/lib/db/user-locations'
+import { checkUserHasReported } from '@/lib/db/reports'
 
 const PostCard = memo(({ 
   post, 
@@ -30,7 +32,8 @@ const PostCard = memo(({
   postScores,
   currentImageIndices,
   imageError,
-  savedLocations 
+  savedLocations,
+  reportedPosts
 }: {
   post: any;
   onVote: (postId: number, direction: "up" | "down", e: React.MouseEvent) => void;
@@ -45,6 +48,7 @@ const PostCard = memo(({
   currentImageIndices: Record<number, number>;
   imageError: Record<string, boolean>;
   savedLocations: Set<number>;
+  reportedPosts: Set<number>;
 }) => {
   const router = useRouter();
   const currentIndex = currentImageIndices[post.id] ?? 0;
@@ -57,21 +61,27 @@ const PostCard = memo(({
   return (
     <Card className="overflow-hidden">
       <CardHeader className="p-4 pb-0">
-        <div className="flex items-center space-x-2">
-          <Avatar 
-            className="w-10 h-10 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={() => onAvatarClick(post.user.id)}
-          >
-            <AvatarImage src={post.user.avatar} />
-            <AvatarFallback>{post.user.name.charAt(0)}</AvatarFallback>
-          </Avatar>
-          <div 
-            className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
-            onClick={() => onAvatarClick(post.user.id)}
-          >
-            <div className="font-semibold">{post.user.name}</div>
-            <div className="text-xs text-muted-foreground">{post.user.username}</div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Avatar 
+              className="w-10 h-10 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => onAvatarClick(post.user.id)}
+            >
+              <AvatarImage src={post.user.avatar} />
+              <AvatarFallback>{post.user.name.charAt(0)}</AvatarFallback>
+            </Avatar>
+            <div 
+              className="flex-1 cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => onAvatarClick(post.user.id)}
+            >
+              <div className="font-semibold">{post.user.name}</div>
+              <div className="text-xs text-muted-foreground">{post.user.username}</div>
+            </div>
           </div>
+          <ReportDialog 
+            postId={post.id} 
+            hasReported={reportedPosts.has(post.id)} 
+          />
         </div>
       </CardHeader>
       <CardContent className="p-0 pt-4" onClick={() => onPostClick(post.id)}>
@@ -102,7 +112,7 @@ const PostCard = memo(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity z-10"
                     onClick={(e) => onImageNavigation(post.id, "prev", e)}
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -110,7 +120,7 @@ const PostCard = memo(({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity z-10"
                     onClick={(e) => onImageNavigation(post.id, "next", e)}
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -197,12 +207,23 @@ const PostCard = memo(({
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" 
+          <Button variant="ghost" size="sm" className="h-8 px-2 flex items-center gap-1" 
             onClick={(e) => onComment(post.id, e)}>
             <MessageCircle className="h-4 w-4" />
+            {post.comments > 0 && (
+              <span className="text-sm font-medium">{post.comments}</span>
+            )}
           </Button>
         </div>
       </CardFooter>
+      {post.topComment && (
+        <div className="px-4 pb-4 pt-0">
+          <div className="bg-muted/50 rounded-lg p-3 text-sm">
+            <span className="font-medium text-foreground">{post.topComment.author.name}</span>
+            <span className="text-muted-foreground">: {post.topComment.content}</span>
+          </div>
+        </div>
+      )}
     </Card>
   );
 });
@@ -211,6 +232,7 @@ PostCard.displayName = 'PostCard';
 
 export default function FeedView() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [posts, setPosts] = useState<any[]>([])
   const [userVotes, setUserVotes] = useState<Record<number, "up" | "down" | null>>({})
   const [postScores, setPostScores] = useState<Record<number, number>>({})
@@ -218,11 +240,92 @@ export default function FeedView() {
   const [imageError, setImageError] = useState<Record<string, boolean>>({})
   const [currentImageIndices, setCurrentImageIndices] = useState<Record<number, number>>({})
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [feedType, setFeedType] = useState<FeedType>('hot')
+  const [feedType, setFeedType] = useState<FeedType>(() => {
+    // Check URL parameter for initial feed type
+    const tabParam = searchParams.get('tab')
+    if (tabParam === 'new' || tabParam === 'hot' || tabParam === 'follow') {
+      return tabParam as FeedType
+    }
+    return 'hot' // default
+  })
   const [isLoading, setIsLoading] = useState(false)
   const [savedLocations, setSavedLocations] = useState<Set<number>>(new Set())
+  const [reportedPosts, setReportedPosts] = useState<Set<number>>(new Set())
+  const lastFetchRef = useRef<{ type: FeedType; timestamp: number } | null>(null)
 
-  const loadPosts = useCallback(async (type: FeedType) => {
+  // Clear the tab parameter from URL after reading it
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (tabParam) {
+      // Remove the tab parameter from URL without affecting browser history
+      const newUrl = new URL(window.location.href)
+      newUrl.searchParams.delete('tab')
+      window.history.replaceState({}, '', newUrl.pathname)
+    }
+  }, [searchParams])
+
+  // Load cached posts if available
+  const loadCachedPosts = useCallback((type: FeedType): any[] | null => {
+    try {
+      const cacheKey = `feed_posts_${type}`
+      const cached = sessionStorage.getItem(cacheKey)
+      if (cached) {
+        const { posts, timestamp } = JSON.parse(cached)
+        // Cache is valid for 5 minutes
+        if (Date.now() - timestamp < 5 * 60 * 1000) {
+          return posts
+        }
+      }
+    } catch (error) {
+      console.error('Error loading cached posts:', error)
+    }
+    return null
+  }, [])
+
+  // Save posts to cache
+  const saveCachedPosts = useCallback((type: FeedType, posts: any[]) => {
+    try {
+      const cacheKey = `feed_posts_${type}`
+      sessionStorage.setItem(cacheKey, JSON.stringify({
+        posts,
+        timestamp: Date.now()
+      }))
+    } catch (error) {
+      console.error('Error saving posts to cache:', error)
+    }
+  }, [])
+
+  const loadPosts = useCallback(async (type: FeedType, forceRefresh: boolean = false) => {
+    // Check if we should use cached data
+    if (!forceRefresh) {
+      const cachedPosts = loadCachedPosts(type)
+      if (cachedPosts) {
+        setPosts(cachedPosts)
+        // Still fetch fresh voting data and user info
+        const postIds = cachedPosts.map(post => post.id)
+        const [userVotesMap, currentUser] = await Promise.all([
+          getUserVotes(postIds),
+          fetchCurrentUserProfile()
+        ])
+        
+        setCurrentUserId(currentUser?.id || null)
+        
+        // Update votes and scores
+        const initialVotes: Record<number, "up" | "down" | null> = {}
+        cachedPosts.forEach(post => {
+          initialVotes[post.id] = userVotesMap.get(post.id) || null
+        })
+        setUserVotes(initialVotes)
+        
+        // Fetch saved locations
+        const locationIds = cachedPosts.map(post => post.locationId).filter(Boolean)
+        const savedLocationsSet = await getUserSavedLocations(locationIds)
+        setSavedLocations(savedLocationsSet)
+        
+        return
+      }
+    }
+
     setIsLoading(true)
     try {
       const [data, currentUser] = await Promise.all([
@@ -233,14 +336,21 @@ export default function FeedView() {
       setPosts(data)
       setCurrentUserId(currentUser?.id || null)
       
+      // Save to cache
+      saveCachedPosts(type, data)
+      
       // Get user votes for all posts
       const postIds = data.map(post => post.id)
       const userVotesMap = await getUserVotes(postIds)
       
-      // Get user saved locations for all posts
+      // Get user saved locations for all posts (batch operation)
       const locationIds = data.map(post => post.locationId).filter(Boolean)
       const savedLocationsSet = await getUserSavedLocations(locationIds)
       setSavedLocations(savedLocationsSet)
+      
+      // Skip expensive reported posts check for better performance
+      // Only check when user actually tries to report a post
+      setReportedPosts(new Set())
       
       // Initialize post scores and image indices
       const initialScores: Record<number, number> = {};
@@ -259,16 +369,23 @@ export default function FeedView() {
       setPostScores(initialScores);
       setCurrentImageIndices(initialIndices);
       setUserVotes(initialVotes);
+      
+      lastFetchRef.current = { type, timestamp: Date.now() }
     } catch (e) {
       console.error('Failed to load posts', e)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [loadCachedPosts, saveCachedPosts])
 
   useEffect(() => {
     setIsMounted(true)
-    loadPosts(feedType)
+    // Check if we need to refresh
+    const shouldRefresh = !lastFetchRef.current || 
+                         lastFetchRef.current.type !== feedType ||
+                         Date.now() - lastFetchRef.current.timestamp > 5 * 60 * 1000 // 5 minutes
+    
+    loadPosts(feedType, shouldRefresh)
   }, [loadPosts, feedType])
 
   const handleFeedTypeChange = useCallback((newFeedType: FeedType) => {
@@ -466,6 +583,7 @@ export default function FeedView() {
             currentImageIndices={currentImageIndices}
             imageError={imageError}
             savedLocations={savedLocations}
+            reportedPosts={reportedPosts}
           />
         ))}
       </div>

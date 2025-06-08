@@ -15,22 +15,44 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setIsLoading(true)
-    setError(null)
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (error) {
-      setError(error.message)
-      setIsLoading(false)
+  const handleSignIn = async (e?: FormEvent) => {
+    if (e) e.preventDefault()
+    
+    if (!email || !password) {
+      setError('Please fill in all fields')
       return
     }
 
-    const redirectTo = searchParams.get('redirect') ?? '/'
-    router.push(redirectTo)
-    router.refresh()
+    setIsLoading(true)
+    setError('')
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) {
+        // Handle rate limiting specifically
+        if (error.message.includes('rate limit') || error.message.includes('too many requests')) {
+          setError('Too many login attempts. Please wait a few minutes before trying again.')
+        } else if (error.message.includes('Invalid login credentials')) {
+          setError('Invalid email or password')
+        } else {
+          setError(error.message)
+        }
+        return
+      }
+
+      // Success - redirect will happen automatically via auth state change
+      const redirectTo = searchParams.get('redirect') ?? '/'
+      router.push(redirectTo)
+    } catch (err) {
+      console.error('Sign in error:', err)
+      setError('An unexpected error occurred. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -43,7 +65,7 @@ export default function LoginPage() {
           </p>
         </div>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSignIn} className="space-y-4">
           <Input
             type="email"
             placeholder="Email"

@@ -30,31 +30,26 @@ export default function CreateLocationMap({ onLocationCreated }: CreateLocationM
   const [isCreating, setIsCreating] = useState(false)
   const mapKey = useRef(`create-map-${Date.now()}`).current
 
-  // 加载地图时获取用户位置
+  // Load map and get user location
   useEffect(() => {
     if (typeof navigator !== "undefined" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setUserLocation([position.coords.latitude, position.coords.longitude])
         },
-        (error) => {
-          if (error && typeof error === 'object' && 'message' in error) {
-            console.error("Error getting user location:", (error as GeolocationPositionError).message)
-          } else {
-            console.error("Error getting user location:", error)
-          }
-          // 默认斯坦福坐标
+        () => {
+          // Default to Stanford coordinates if location is denied or unavailable
           setUserLocation([37.4275, -122.1697])
         }
       )
     } else {
-      // 默认斯坦福坐标
+      // Default to Stanford coordinates
       setUserLocation([37.4275, -122.1697])
     }
     setMapLoaded(true)
   }, [])
 
-  // 处理地图点击事件
+  // Handle map click events
   const handleMapClick = (lat: number, lng: number) => {
     setMarkerPosition([lat, lng])
   }
@@ -103,8 +98,6 @@ export default function CreateLocationMap({ onLocationCreated }: CreateLocationM
         lat,
         lng,
         category: 'custom',
-        rating: 0,
-        visitCount: 0,
         imageUrl: 'https://source.unsplash.com/random/800x600?place',
         tags: [],
         description: '',
@@ -130,12 +123,12 @@ export default function CreateLocationMap({ onLocationCreated }: CreateLocationM
     <div className="space-y-4">
       <div className="flex flex-col gap-2">
         <Input
-          placeholder="地点名称"
+          placeholder="Location name"
           value={locationName}
           onChange={(e) => setLocationName(e.target.value)}
         />
         <Input
-          placeholder="地点地址"
+          placeholder="Location address"
           value={locationAddress}
           onChange={(e) => setLocationAddress(e.target.value)}
         />
@@ -144,14 +137,14 @@ export default function CreateLocationMap({ onLocationCreated }: CreateLocationM
           disabled={!locationName.trim() || !locationAddress.trim() || !markerPosition || isCreating}
         >
           {isCreating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PlusCircle className="h-4 w-4 mr-2" />}
-          创建地点
+          Create Location
         </Button>
       </div>
 
       <div className="h-[400px] rounded-md overflow-hidden relative">
         <div className="absolute top-4 left-0 right-0 z-10 flex justify-center pointer-events-none">
           <div className="bg-background/90 backdrop-blur-sm px-4 py-2 rounded-full text-sm shadow pointer-events-auto">
-            点击地图选择位置
+            Click map to select location
           </div>
         </div>
 
@@ -174,9 +167,9 @@ export default function CreateLocationMap({ onLocationCreated }: CreateLocationM
           {markerPosition && (
             <Marker position={markerPosition} icon={createIcon(true)}>
               <Popup>
-                {locationName || "新地点"}
+                {locationName || "New Location"}
                 <br />
-                {`位置: ${markerPosition[0].toFixed(6)}, ${markerPosition[1].toFixed(6)}`}
+                {`Location: ${markerPosition[0].toFixed(6)}, ${markerPosition[1].toFixed(6)}`}
               </Popup>
             </Marker>
           )}

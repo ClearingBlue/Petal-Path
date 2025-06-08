@@ -23,6 +23,8 @@ import { fetchLocations } from '@/lib/db/locations'
 import type { ExtendedLocation } from '@/lib/data/models/location'
 import dynamic from "next/dynamic"
 import { useSession } from '@supabase/auth-helpers-react'
+import { createSupabaseClient } from '@/lib/supabase'
+import { heicTo } from 'heic-to'
 
 // Preset tags list
 const PRESET_TAGS = [
@@ -34,24 +36,11 @@ const PRESET_TAGS = [
 const LocationMapWithNoSSR = dynamic(() => import("@/components/location-map"), {
   ssr: false,
   loading: () => (
-    <div className="h-[300px] bg-muted rounded-md flex items-center justify-center">
+    <div className="h-[180px] bg-muted rounded-md flex items-center justify-center">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
     </div>
   ),
 });
-
-function dataURLtoFile(dataUrl: string, fileName: string): File {
-  const arr = dataUrl.split(',')
-  const mimeMatch = arr[0].match(/:(.*?);/)
-  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg'
-  const bstr = atob(arr[arr.length - 1])
-  let n = bstr.length
-  const u8arr = new Uint8Array(n)
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n)
-  }
-  return new File([u8arr], fileName, { type: mime })
-}
 
 export default function CreatePost() {
   const router = useRouter();
@@ -95,7 +84,7 @@ export default function CreatePost() {
   useEffect(() => {
     async function loadLocs() {
       try {
-        const data = await fetchLocations()
+        const data = await fetchLocations() // Use fast path for performance
         setLocationsList(data)
       } catch (e) {
         console.error('Failed to load locations', e)
@@ -117,11 +106,7 @@ export default function CreatePost() {
         tags: draft.tags ?? [],
       })
       setSelectedLocationId(draft.locationId ?? null)
-      if (Array.isArray(draft.previews)) {
-        setImagePreviews(draft.previews)
-        const files = draft.previews.map((url: string, idx: number) => dataURLtoFile(url, `draft-${idx}.png`))
-        setImageFiles(files)
-      }
+      // Don't restore images - they were base64 and too large
     } catch {
       /* ignore */
     }
@@ -135,13 +120,15 @@ export default function CreatePost() {
       location: formData.location,
       locationId: selectedLocationId,
       tags: formData.tags,
+      // Don't save image previews - they're too large for localStorage
+      imageCount: imagePreviews.length
     }
     try {
       localStorage.setItem('post-draft', JSON.stringify(draft))
     } catch {
       // quota exceeded – ignore silently
     }
-  }, [formData, selectedLocationId, imagePreviews])
+  }, [formData, selectedLocationId, imagePreviews.length])
 
   // Handle form input changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -150,16 +137,22 @@ export default function CreatePost() {
   };
 
   // Handle image selection
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    // Check file types
-    const invalidFiles = files.filter(file => !file.type.startsWith('image/'));
+    // Check file types - allow standard images and HEIC
+    const acceptedFormats = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const invalidFiles = files.filter(file => {
+      const isStandardImage = acceptedFormats.includes(file.type.toLowerCase());
+      const isHeic = file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif');
+      return !isStandardImage && !isHeic;
+    });
+    
     if (invalidFiles.length > 0) {
       toast({
-        title: "Error",
-        description: "Please select only image files",
+        title: "Invalid File Format",
+        description: "Please select only JPEG, PNG, GIF, WebP, or HEIC images",
         variant: "destructive",
       });
       return;
@@ -185,16 +178,85 @@ export default function CreatePost() {
       });
     }
 
-    setImageFiles(prev => [...prev, ...filesToAdd]);
-    
-    // Create previews
-    filesToAdd.forEach(file => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreviews(prev => [...prev, reader.result as string]);
-      };
-      reader.readAsDataURL(file);
-    });
+    // Process each file
+    const processedFiles: File[] = [];
+    const previews: string[] = [];
+
+    for (const file of filesToAdd) {
+      try {
+        // Check file size (optional - add a reasonable limit)
+        const maxSizeInMB = 20;
+        if (file.size > maxSizeInMB * 1024 * 1024) {
+          toast({
+            title: "File Too Large",
+            description: `${file.name} is larger than ${maxSizeInMB}MB. Please use a smaller image.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+        
+        // Check if file is HEIC and convert it
+        const isHeic = file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif');
+        let processedFile: File = file;
+        
+        if (isHeic) {
+          try {
+            // Show conversion toast
+            toast({
+              title: "Converting HEIC image...",
+              description: "Please wait while we process your image",
+            });
+            
+            // Convert HEIC to JPEG using heic-to
+            const jpegBlob = await heicTo({
+              blob: file,
+              type: "image/jpeg",
+              quality: 0.9
+            });
+            
+            // Create a new File object with JPEG extension
+            const jpegFileName = file.name.replace(/\.(heic|heif)$/i, '.jpg');
+            processedFile = new File([jpegBlob], jpegFileName, { type: 'image/jpeg' });
+            
+            toast({
+              title: "Conversion successful",
+              description: "HEIC image has been converted to JPEG",
+            });
+          } catch (conversionError) {
+            console.error('HEIC conversion failed:', conversionError);
+            toast({
+              title: "HEIC Conversion Failed",
+              description: `Unable to convert ${file.name}. Please convert it to JPEG/PNG manually.`,
+              variant: "destructive",
+            });
+            continue;
+          }
+        }
+        
+        processedFiles.push(processedFile);
+        
+        // Create preview
+        const reader = new FileReader();
+        const preview = await new Promise<string>((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(processedFile);
+        });
+        previews.push(preview);
+        
+      } catch (error) {
+        console.error('Error processing file:', error);
+        toast({
+          title: "Error",
+          description: `Failed to process image: ${file.name}`,
+          variant: "destructive",
+        });
+      }
+    }
+
+    // Update state with processed files and previews
+    setImageFiles(prev => [...prev, ...processedFiles]);
+    setImagePreviews(prev => [...prev, ...previews]);
 
     // Reset the input value to allow selecting the same file again
     if (fileInputRef.current) {
@@ -235,13 +297,27 @@ export default function CreatePost() {
   
   // Handle search input
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value.toLowerCase());
+    setSearchTerm(e.target.value);
   };
   
-  // Filter locations list
-  const filteredLocations = locationsList.filter((loc) =>
-    loc.name.toLowerCase().includes(searchTerm)
-  )
+  // Filter locations list with improved partial matching
+  const filteredLocations = locationsList.filter((loc) => {
+    const search = searchTerm.toLowerCase();
+    const locationName = loc.name.toLowerCase();
+    
+    // Support multiple search strategies:
+    // 1. Exact substring match (current behavior)
+    if (locationName.includes(search)) return true;
+    
+    // 2. Match if search terms are found as word beginnings
+    const searchWords = search.split(' ').filter(word => word.length > 0);
+    const locationWords = locationName.split(' ');
+    
+    // Check if all search words match the beginning of any location words
+    return searchWords.every(searchWord => 
+      locationWords.some(locationWord => locationWord.startsWith(searchWord))
+    );
+  });
 
   // Submit form
   const handleSubmit = async () => {
@@ -266,6 +342,15 @@ export default function CreatePost() {
       return;
     }
 
+    if (imageFiles.length === 0) {
+      toast({
+        title: "Images required",
+        description: "Please upload at least one image for your post",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!selectedLocationId) {
       toast({
         title: "Location required", 
@@ -278,22 +363,52 @@ export default function CreatePost() {
     setIsSubmitting(true);
     
     try {
-      // Upload images and get URLs
+      // Upload images to Supabase Storage and get URLs
       const imageUrls: string[] = []
+      const supabase = createSupabaseClient()
+      const user = (await supabase.auth.getUser()).data.user
       
-      for (const file of imageFiles) {
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+      
+      // Create a unique folder for this post
+      const timestamp = Date.now()
+      const postFolder = `${user.id}/${timestamp}`
+      
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i]
+        const fileExt = file.name.split('.').pop()
+        const fileName = `${i}.${fileExt}`
+        const filePath = `${postFolder}/${fileName}`
+        
         try {
-          // Create a data URL from the file for now
-          // In a real app, you would upload to your storage service here
-          const reader = new FileReader()
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            reader.onload = () => resolve(reader.result as string)
-            reader.onerror = () => reject(reader.error)
-            reader.readAsDataURL(file)
-          })
-          imageUrls.push(dataUrl)
+          // Upload file to Supabase Storage
+          const { error: uploadError } = await supabase.storage
+            .from('posts')
+            .upload(filePath, file, {
+              cacheControl: '3600',
+              upsert: false
+            })
+          
+          if (uploadError) {
+            console.error('Failed to upload image:', uploadError)
+            toast({
+              title: "Upload failed",
+              description: `Failed to upload image ${i + 1}: ${uploadError.message}`,
+              variant: "destructive",
+            })
+            continue
+          }
+          
+          // Get public URL for the final file
+          const { data } = supabase.storage
+            .from('posts')
+            .getPublicUrl(filePath)
+          
+          imageUrls.push(data.publicUrl)
         } catch (uploadError) {
-          console.error('Failed to process image:', uploadError)
+          console.error('Failed to upload image:', uploadError)
           // Continue with other images even if one fails
         }
       }
@@ -321,8 +436,8 @@ export default function CreatePost() {
 
       if (typeof window !== 'undefined') localStorage.removeItem('post-draft')
 
-      // Redirect to Feed page
-      router.push("/");
+      // Redirect to Feed page with new tab selected
+      router.push("/?tab=new");
       
     } catch (error) {
       console.error("Posting failed:", error);
@@ -351,7 +466,7 @@ export default function CreatePost() {
             className="ml-auto" 
             size="sm" 
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || imageFiles.length === 0}
           >
             {isSubmitting ? "Posting..." : "Post"}
           </Button>
@@ -359,6 +474,30 @@ export default function CreatePost() {
       </header>
       
       <div className="container max-w-md mx-auto p-4 space-y-4">
+        {/* Location */}
+        <div className="space-y-2">
+          <Label htmlFor="location">Location</Label>
+          <div className="flex items-center gap-2">
+            <Input 
+              id="location" 
+              name="location"
+              value={formData.location}
+              onChange={handleInputChange}
+              placeholder="Select a location" 
+              readOnly
+              className="cursor-pointer"
+              onClick={() => setIsLocationDialogOpen(true)}
+            />
+            <Button 
+              variant="outline" 
+              size="icon"
+              onClick={() => setIsLocationDialogOpen(true)}
+            >
+              <MapPin className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
         {/* Photo upload area */}
         <div className="space-y-2">
           <Label>Photos (up to 5)</Label>
@@ -383,11 +522,11 @@ export default function CreatePost() {
             ))}
             {imagePreviews.length < 5 && (
               <div 
-                className="aspect-square bg-muted rounded-md relative overflow-hidden cursor-pointer"
+                className="aspect-square bg-muted rounded-md relative overflow-hidden cursor-pointer border-2 border-dashed border-gray-300 hover:border-gray-400 transition-colors"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <div className="flex flex-col items-center justify-center h-full">
-                  <ImagePlus className="h-12 w-12 text-muted-foreground mb-2" />
+                  <ImagePlus className="h-12 w-12 mb-2 text-muted-foreground" />
                   <p className="text-muted-foreground">Add photo</p>
                 </div>
               </div>
@@ -395,7 +534,7 @@ export default function CreatePost() {
           </div>
           <input 
             type="file" 
-            accept="image/*" 
+            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,.heic,.heif" 
             multiple
             className="hidden" 
             ref={fileInputRef} 
@@ -432,55 +571,31 @@ export default function CreatePost() {
             ))}
           </div>
         </div>
-
-        {/* Location */}
-        <div className="space-y-2">
-          <Label htmlFor="location">Location</Label>
-          <div className="flex items-center gap-2">
-            <Input 
-              id="location" 
-              name="location"
-              value={formData.location}
-              onChange={handleInputChange}
-              placeholder="Select a location" 
-              readOnly
-              className="cursor-pointer"
-              onClick={() => setIsLocationDialogOpen(true)}
-            />
-            <Button 
-              variant="outline" 
-              size="icon"
-              onClick={() => setIsLocationDialogOpen(true)}
-            >
-              <MapPin className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </div>
 
       {/* Location selection dialog */}
       <Dialog open={isLocationDialogOpen} onOpenChange={setIsLocationDialogOpen}>
-        <DialogContent className="sm:max-w-md max-w-[90vw] w-full max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-md max-w-[calc(100vw-2rem)] max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="p-4 pb-0">
             <DialogTitle>Select Location</DialogTitle>
           </DialogHeader>
           
-          <div className="overflow-y-auto flex-1 pr-1 -mr-1">
-            <div className="space-y-4">
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-4 pt-2">
               {/* Search */}
-              <div className="relative">
+              <div className="relative mb-3">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input 
                   id="locationSearch" 
                   placeholder="Search location..." 
-                  className="pl-8"
+                  className="pl-8 h-9"
                   value={searchTerm}
                   onChange={handleSearchChange}
                 />
               </div>
               
-              {/* Map */}
-              <div className="w-full h-[30vh] sm:h-[300px]">
+              {/* Map - Made more compact */}
+              <div className="w-full h-[20vh] sm:h-[180px] mb-3 rounded-md overflow-hidden">
                 {isLocationDialogOpen && (
                   <LocationMapWithNoSSR
                     selectedLocation={formData.location}
@@ -488,15 +603,17 @@ export default function CreatePost() {
                   />
                 )}
               </div>
+              </div>
               
-              {/* Location list */}
-              <div className="space-y-2">
+            {/* Scrollable location list - Now has more space */}
+            <div className="flex-1 overflow-y-auto px-4 pb-3 min-h-0">
+              <div className="space-y-1.5">
                 {filteredLocations.length > 0 ? (
                   filteredLocations.map((location) => (
                     <Button
                       key={location.id}
                       variant={formData.location === location.name ? 'default' : 'outline'}
-                      className="w-full justify-start text-left"
+                      className="w-full justify-start text-left h-9"
                       onClick={() => confirmLocation(location.name)}
                     >
                       <MapPin className="h-4 w-4 min-w-4 mr-2 flex-shrink-0" />
@@ -505,26 +622,26 @@ export default function CreatePost() {
                   ))
                 ) : (
                   <div className="py-4 text-center">
-                    <p className="text-muted-foreground">No results for "{searchTerm}"</p>
+                    <p className="text-muted-foreground text-sm">No results for "{searchTerm}"</p>
                   </div>
                 )}
               </div>
+              </div>
 
-              {/* Create new location action */}
-              <div className="flex justify-center pt-4">
-                <Button variant="outline" className="w-full" onClick={() => {
+            {/* Fixed create location button */}
+            <div className="border-t bg-background p-3">
+              <Button variant="outline" className="w-full h-9" onClick={() => {
                   setIsLocationDialogOpen(false)
                   router.push('/create/location')
                 }}>
                   <PlusCircle className="h-4 w-4 mr-2" />
                   Create New Location
                 </Button>
-              </div>
             </div>
           </div>
           
-          <DialogFooter className="sm:justify-end mt-4">
-            <Button variant="secondary" onClick={() => setIsLocationDialogOpen(false)}>Cancel</Button>
+          <DialogFooter className="p-4 pt-0">
+            <Button variant="secondary" size="sm" onClick={() => setIsLocationDialogOpen(false)}>Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
